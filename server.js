@@ -1,6 +1,8 @@
 const express = require('express');
 const {v4 : uuidv4} = require('uuid');
 
+const {generateFile} = require("./genFile.js");
+
 // define app
 const app = express();
 
@@ -10,7 +12,7 @@ app.use(express.json());
 const jobs = new Map();
 
 // submit a job
-app.post('/submit', (req, res) => {
+app.post('/submit', async (req, res) => {
 	const body = req.body;
 	const job = {
 				"id" : uuidv4(),
@@ -21,10 +23,23 @@ app.post('/submit', (req, res) => {
 				"created" : new Date(),
 			};
 	jobs.set(job.id, job);
-	return res.status(202).json({
-			message : "Successfully created Job",
-			jobId : job.id
-	});
+	try{
+		const filePath = await generateFile(job.id, job.code, job.lang);
+	
+		return res.status(202).json({
+				message : "Successfully created Job",
+				jobId : job.id
+		});
+	} catch (err) {
+		job.status = "FAILED";
+		job.output = err.message;
+		jobs.set(job.id, job);
+
+		return res.status(400).json({
+			message : "Failed to process job",
+			error : err.message,
+		});
+	}
 });
 
 // track job status
