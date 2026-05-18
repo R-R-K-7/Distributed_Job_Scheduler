@@ -1,0 +1,24 @@
+{
+  "name": "distributed_job_scheduler",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/R-R-K-7/Distributed_Job_Scheduler#readme",
+  "bugs": {
+    "url": "https://github.com/R-R-K-7/Distributed_Job_Scheduler/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/R-R-K-7/Distributed_Job_Scheduler.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "uuid": "^14.0.0"
+  }
+}
