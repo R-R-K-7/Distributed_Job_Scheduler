@@ -74,14 +74,17 @@ async function schedule(){
 		job.status = "COMPLETED";
 		job.output = stdout;
 		job.error = stderr;
+		job.path = null;
 	}catch(err){
 		// update job attributes
 		job.status = "TERMINATED";
 		job.error = err.message;
-		console.log(err.message);
+		job.path = null;
 	}finally{
 		jobs.set(jobId, job);
 		numActiveJobs--;
+
+		console.log(job.output, job.error);
 
 		// Call scheduler to run the next job
 		schedule();
