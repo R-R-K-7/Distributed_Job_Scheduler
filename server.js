@@ -1,8 +1,11 @@
 const express = require('express');
+const multer = require('multer');
 const {v4 : uuidv4} = require('uuid');
 
-const {generateFile} = require("./genFile.js");
+const {extractFile} = require("./genFile.js");
 const {execCode} = require("./run_code.js");
+// uses Multer to get a file
+const {uploadMiddleWare} = require('./post_file.js');
 
 // define app
 const app = express();
@@ -18,17 +21,22 @@ const maxActiveJobs = 2;
 let numActiveJobs = 0;
 
 // submit a job
-app.post('/submit', async (req, res) => {
+app.post('/submit', uploadMiddleWare, async (req, res) => {
 	const body = req.body;
 	const job = {
 				"id" : uuidv4(),
 				"status" : "QUEUED",
-				"code" : body.code,
+				"file" : req.file,
 				"lang" : body.lang,
 				"output" : null,
 				"error" : null,
 				"created" : new Date(),
 				"path" : null,
+				// mode : whether file submitted has a makefile or 
+				// just a single file to execute
+				// 1 -> just execute makefile
+				// 0 -> a single file to be (compiled) executed
+				"mode" : body.mode,
 			};
 	jobs.set(job.id, job);
 	queue.push(job.id);
@@ -47,7 +55,7 @@ app.get('/status/:jobid', (req, res) => {
 	if (!jobs.has(jobid)){
 		return res.status(404).send(`Job Id : ${jobid} not found.`);
 	}
-	const {code, ...stat} = jobs.get(jobid);
+	const {file, ...stat} = jobs.get(jobid);
 	return res.status(200).json(stat);
 });
 
@@ -65,10 +73,10 @@ async function schedule(){
 	jobs.set(jobId, job);
 
 	try{
-		const filePath = await generateFile(job.id, job.code, job.lang);
+		const filePath = await extractFile(job.id, job.file, job.lang);
 		job.path = filePath;
 
-		const {stdout, stderr} = await execCode(filePath, job.lang);
+		const {stdout, stderr} = await execCode(filePath, job.lang, job.mode);
 
 		// update job attributes
 		job.status = "COMPLETED";
