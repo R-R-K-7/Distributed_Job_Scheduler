@@ -41,6 +41,7 @@ app.post('/submit', uploadMiddleWare, async (req, res) => {
 	jobs.set(job.id, job);
 	queue.push(job.id);
 
+	// schedule the job
 	schedule();
 	
 	return res.status(202).json({
