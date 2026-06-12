@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Distributed Job Scheduler</title>
+	<style>
+		body{
+			font-family: system-ui, sans-serif;
+			background-color: #e6e6ffe1;
+			padding: 2rem;
+		}
+		.card{
+			background-color: white;
+			padding: 2rem;
+			border-radius: 8px;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+			max-width: 600px;
+			margin: auto;
+		}
+		.terminal{
+			background-color: #151515;
+			color: #00f500;
+			padding: 1rem;
+			border-radius: 4px;
+			font-family: 'Courier New', Courier, monospace;
+			white-space: pre-wrap;
+			margin-top: 1rem;
+			min-height: 150px;
+		}
+		.error{
+			color: #ff2a2a;
+			font-weight: bold;
+		}
+		button{
+			background-color: #03364a;
+			color: rgb(255, 255, 255);
+			border: none;
+			padding: 0.2rem 1rem;
+			border-radius: 4px;
+			cursor: pointer;
+		}
+		button:disabled{
+			background-color: #cccccc;
+			color: #666666;
+			cursor: not-allowed;
+		}
+	</style>
+</head>
+<body>
+<div class="card">
+	<h2>Submit Project</h2>
+	<input type="file" id="fileZip" accept=".zip"/>
+	<select id="lang">
+		<option value="Python">Python</option>
+		<option value="C">C</option>
+		<option value="C++">C++</option>
+	</select>
+	<select id="mode">
+		<option value="1">With Makefile</option>
+		<option value="0">Without Makefile</option>
+	</select>
+	<input type="number" id="timeout" placeholder="Timeout (seconds)" min="1" max="7200" value="5"/>
+	<button id="submitBtn" onclick="submitJob()">Run</button>
+	<h3 id="statusText" style="margin-top: 2rem;">No Job Submitted</h3>
+	<div id="output" class="terminal">Output will appear here...</div>
+</div>
+<script>
+	const API_URL = 'http://localhost:3000';
+	let pollInterval = null;
+	async function submitJob(){
+		const fileInput = document.getElementById('fileZip');
+		const lang = document.getElementById('lang');
+		const mode = document.getElementById('mode');
+		const btn = document.getElementById('submitBtn');
+		const statusText = document.getElementById('statusText');
+		const outputTerminal = document.getElementById('output');
+
+		if(fileInput.files.length === 0){
+			alert('Please select a zip file to submit.');
+			return;
+		}
+		
+		btn.disabled = true;
+		statusText.textContent = 'Submitting job...';
+		outputTerminal.textContent = '';
+
+		// package file for multer
+		const formData = new FormData();
+		formData.append('fileZip', fileInput.files[0]);
+		formData.append('lang', lang.value);
+		formData.append('mode', mode.value);
+		formData.append('timeout', document.getElementById('timeout').value);
+		statusText.textContent = 'Uploading to Server...';
+		try{
+			// send to api
+			const response = await fetch(`${API_URL}/submit`, {
+				method: 'POST',
+				body: formData
+			});
+			const data = await response.json();
+
+			if (response.status == 202){
+				statusText.innerText = `Status : QUEUED`;
+				startPolling(data.jobId);
+			}else{
+				throw new Error(data.error || 'Upload Failed');
+			}
+		}catch(err){
+			statusText.innerText = `Status : TERMINATED`;
+			outputTerminal.innerText = err.message;
+			outputTerminal.classList.add('error');
+			btn.disabled = false;
+		}
+	}
+	function startPolling(jobId){
+		const statusText = document.getElementById('statusText');
+		const outputTerminal = document.getElementById('output');
+		const btn = document.getElementById('submitBtn');
+		// poll every 1000ms for status updates
+		pollInterval = setInterval(async () =>{
+			try{
+				const response = await fetch(`${API_URL}/status/${jobId}`);
+				const data = await response.json();
+				statusText.innerText = `Status : ${data.status}`;
+				if(data.status === 'COMPLETED' || data.status === 'TERMINATED'){
+					clearInterval(pollInterval);
+					if (data.status === 'TERMINATED' || data.error){
+						outputTerminal.classList.add('error');
+						outputTerminal.innerText = data.error;
+					}else{
+						outputTerminal.classList.remove('error');
+						outputTerminal.innerText = data.output || '';
+					}
+					btn.disabled = false;
+				}
+			}catch(err){
+				clearInterval(pollInterval);
+				statusText.innerText = `Status : API Disconnected`;
+				outputTerminal.innerText = err.message;
+				outputTerminal.classList.add('error');
+				btn.disabled = false;
+			}
+		},1000);
+	}
+</script>
+</body>
+</html>

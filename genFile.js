@@ -5,7 +5,7 @@ const express = require('express');
 const extract = require('extract-zip');
 const admZip = require('adm-zip');
 
-async function extractFile(jobId, file, lang){
+async function extractFile(jobId, zipPath, lang){
 	// extension for lang
 	if (!['c', 'c++','python'].includes(lang.toLowerCase()))
 		throw new Error(`Invalid Language : ${lang}`);
@@ -13,7 +13,7 @@ async function extractFile(jobId, file, lang){
 	const dirPath = path.join(os.tmpdir(), `sandbox_${jobId}`);
 
 	// make sure that zip file when extracted doesn't exceed 10 MB of space
-	const zip = new admZip(file);
+	const zip = new admZip(zipPath);
 	const entries = zip.getEntries();
 	let totalSize = 0;
 	for (const entry of entries){
@@ -27,21 +27,7 @@ async function extractFile(jobId, file, lang){
 	await fs.mkdir(dirPath, {recursive : true});
 
 	// extract zip file
-	await extract(file, dirPath);
-	const items = fs.readdir(dirPath);
-	if (items.length == 1){
-		const singleItemPath = path.join(dirPath, items[0]);
-		const stats = await fs.stat(singleItemPath);
-		if (stats.isDirectory()){
-			// move all items outside with dirPath as their immediate Parent
-			const innerItems = await fs.readdir(singleItemPath);
-			for (const item of innerItems){
-				await fs.rename(path.join(singleItemPath, item),
-								path.join(dirPath, item));
-			}
-			await fs.rmdir(singleItemPath);
-		}
-	}
+	await extract(zipPath, {dir : dirPath});
 	// Return directory Path
 	return dirPath;
 }
