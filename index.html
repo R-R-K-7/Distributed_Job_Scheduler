@@ -59,7 +59,12 @@
 		<option value="1">With Makefile</option>
 		<option value="0">Without Makefile</option>
 	</select>
-	<input type="number" id="timeout" placeholder="Timeout (seconds)" min="1" max="7200" value="5"/>
+	<input type="number" id="timeout" placeholder="Timeout" value="5" min="1" max="7200"/>
+	<select id="timeoutUnit" value="seconds">
+		<option value="seconds">Seconds</option>
+		<option value="minutes">Minutes</option>
+		<option value="hours">Hours</option>
+	</select>
 	<button id="submitBtn" onclick="submitJob()">Run</button>
 	<h3 id="statusText" style="margin-top: 2rem;">No Job Submitted</h3>
 	<div id="output" class="terminal">Output will appear here...</div>
@@ -89,7 +94,15 @@
 		formData.append('fileZip', fileInput.files[0]);
 		formData.append('lang', lang.value);
 		formData.append('mode', mode.value);
-		formData.append('timeout', document.getElementById('timeout').value);
+		const timeoutValue = document.getElementById('timeout').value;
+		const timeoutUnit = document.getElementById('timeoutUnit').value;
+		const timeoutInSeconds = calculateTimeout(timeoutValue, timeoutUnit);
+		if (timeoutInSeconds > 2 * 60 * 60){ // limit to 2 hours
+			alert('Please enter a valid timeout value. Maximum allowed is 2 hours.');
+			btn.disabled = false;
+			return;
+		}
+		formData.append('timeout', timeoutInSeconds * 1000); // convert to milliseconds
 		statusText.textContent = 'Uploading to Server...';
 		try{
 			// send to api
@@ -142,6 +155,34 @@
 			}
 		},1000);
 	}
+	function calculateTimeout(timeoutValue, timeoutUnit){
+		const unitMultipliers = {
+			seconds: 1,
+			minutes: 60,
+			hours: 60 * 60,
+		};
+		return timeoutValue * (unitMultipliers[timeoutUnit] || 1000);
+	}
+	function handleTime(){
+		const timeoutInput = document.getElementById('timeout');
+		const timeoutUnitSelect = document.getElementById('timeoutUnit');
+		const totalSeconds = calculateTimeout(timeoutInput.value, timeoutUnitSelect.value);
+		const submitBtn = document.getElementById('submitBtn');
+		if (totalSeconds > 2 * 60 * 60){ // limit to 2 hours
+			timeoutInput.setCustomValidity('Timeout exceeds 2 hours. Please enter a valid value.');
+			timeoutInput.style.border = '2px solid red';
+			timeoutUnitSelect.style.border = '2px solid red';
+			submitBtn.disabled = true;
+		}else{
+			timeoutInput.setCustomValidity('');
+			timeoutInput.style.borderColor = '';
+			timeoutUnitSelect.style.border = '';
+			submitBtn.disabled = false;
+		}
+	}
+	document.getElementById('timeout').addEventListener('input', handleTime);
+	document.getElementById('timeoutUnit').addEventListener('change', handleTime);
+	
 </script>
 </body>
 </html>

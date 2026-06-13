@@ -18,7 +18,7 @@ async function startworker(){
 		let jobId = null;
 		try{
 			// wait indefinitely for a new job to be enqueued
-			const result = await redisClient.brPop('jobs_queue',0);
+			const result = await redisClient.rPopLPush('jobs_queue',`temp_queue`);
 
 			// for understanding purposes
 			console.log(result);
@@ -46,6 +46,8 @@ async function startworker(){
 			jobData.error = stderr || '';
 			jobData.status = 'COMPLETED';
 			await redisClient.hSet(`job:${jobId}`, jobData);
+
+			redisClient.lRem('temp_queue', jobId, 1);
 		}catch(err){
 			console.error(`Error JobId[${jobId}] failed : ${err.message}`);
 			// update jobData in redis
