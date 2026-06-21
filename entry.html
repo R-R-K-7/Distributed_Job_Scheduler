@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Distributed Job Scheduler</title>
+	<style>
+		body{
+			font-family: system-ui, sans-serif;
+			background-color: #e6e6ffe1;
+			padding: 2rem;
+		}
+		.card{
+			background-color: white;
+			padding: 2rem;
+			border-radius: 8px;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+			max-width: 600px;
+			margin: auto;
+		}
+		.terminal{
+			background-color: #151515;
+			color: #00f500;
+			padding: 1rem;
+			border-radius: 4px;
+			font-family: 'Courier New', Courier, monospace;
+			white-space: pre-wrap;
+			margin-top: 1rem;
+			min-height: 150px;
+		}
+		.error{
+			color: #ff2a2a;
+			font-weight: bold;
+		}
+		button{
+			background-color: #03364a;
+			color: rgb(255, 255, 255);
+			border: none;
+			padding: 0.2rem 1rem;
+			border-radius: 4px;
+			cursor: pointer;
+		}
+		button:disabled{
+			background-color: #cccccc;
+			color: #666666;
+			cursor: not-allowed;
+		}
+	</style>
+</head>
+<body>
+<script>
+	async function checkAuth(){
+		const token = localStorage.getItem('token');
+		if(!token){
+			alert('You are not logged in. Redirecting to login page.');
+			window.location.href = 'login.html';
+		}
+		const verifyResponse = await fetch('http://localhost:3000/verify', {
+			method: 'GET',
+			headers: {
+				'Authorization': `Bearer ${token}`
+			}
+		});
+		const verifyData = await verifyResponse.json();
+		if (!verifyData.ok) {
+			alert('Invalid access. Please log in again.');
+			localStorage.removeItem('token');
+			window.location.href = 'login.html';
+		}
+	}
+    async function showJobs(){
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:3000/jobs', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (!response.ok) {
+            alert('Failed to fetch jobs. Please try again later.');
+            return;
+        }
+        const jobs = await response.json();
+        const jobsContainer = document.getElementById('jobsContainer');
+        jobsContainer.className = 'jobs-container';
+        jobsContainer.innerHTML = '';
+        jobs.forEach(job => {
+            const exitingJobElement = document.getElementById(`job-${job.id}`);
+            if(exitingJobElement){
+                const statusElement = exitingJobElement.querySelector('.status');
+                statusElement.textContent = `Status: ${job.status}`;
+                if (statusElement.textContent === 'Status: COMPLETED') {
+                    statusElement.style.color = 'green';
+                } else if (statusElement.textContent === 'Status: FAILED') {
+                    statusElement.style.color = 'red';
+                } else {
+                    statusElement.style.color = 'black';
+                }
+            }else{
+                const shortId = job.id.substring(0, 7);
+                const jobElement = document.createElement('div');
+                jobElement.id = `job-${job.id}`;
+                jobElement.className = 'job';
+                jobElement.innerHTML = `<h4>Job ID: ${shortId}</h4>
+                                        <button onclick="copyToClipBoard('${job.id}')">Copy ID</button>
+                                        <p>Status: ${job.status}</p>
+                                        <button onclick="viewJobDetails(${job.id})">View</button>;
+                                        <button onclick="killJob(${job.id})">Kill</button>;
+                                        <button onclick="deleteJob(${job.id})">Delete</button>;`;
+                jobsContainer.appendChild(jobElement);
+            }
+        });
+    }
+    function copyToClipBoard(text){
+        navigator.clipboard.writeText(text)
+        .then(() => {
+            alert('Job ID copied to clipboard!');
+        })
+        .catch(err => {
+            alert('Failed to copy Job ID. Please try again.');
+        });
+    }
+    function killJob(jobId){
+        if (!confirm('Are you sure you want to kill this job?')) {
+            return;
+        }
+        const token = localStorage.getItem('token');
+        try{
+            const response = fetch(`http://localhost:3000/jobs/${jobId}/kill`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const data = response.json();
+            if (response.ok) {
+                alert('Job killed successfully!');
+            } else {
+                alert('Failed to kill job: ' + data.error);
+            }
+        }catch(err){
+            console.error('Error:', err);
+            alert('An error occurred while trying to kill the job.');
+        }        
+    }
+    function deleteJob(jobId){
+        if (!confirm('Are you sure you want to permanently delete this job from the database? This action cannot be undone.')) {
+            return;
+        }
+        const token = localStorage.getItem('token');
+        try{
+            const respone = fetch(`http://localhost:3000/jobs/${jobId}/delete`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            if (respone.ok) {
+                const jobElement = document.getElementById(`job-${jobId}`);
+                if (jobElement) {
+                    jobElement.remove();
+                }
+                alert('Job deleted successfully!');
+            } else {
+                const data = respone.json();
+                alert('Failed to delete job: ' + data.error);
+            }
+        }catch(err){
+            console.error('Error:', err);
+            alert('An error occurred while trying to delete the job.');
+        }
+    }
+	checkAuth();
+    showJobs();
+</script>
+<div class="card">
+    <h2>Your Jobs</h2>
+    <div id="jobsContainer"></div>
+</div>
+<script>
+    function viewJobDetails(jobId){
+        window.location.href = `job_details.html?jobId=${jobId}`;
+    }
+    setInterval(showJobs, 5000); // refresh job status every 5 seconds
+</script>
+</body>
+</html>

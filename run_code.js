@@ -4,6 +4,8 @@ const util = require('util');
 const fs = require('fs/promises');
 
 const {exec, spawn, fork} = require('child_process');
+const { error } = require('console');
+const { json } = require('stream/consumers');
 
 const execPromise = util.promisify(exec);
 
@@ -36,8 +38,8 @@ async function findMain(dirpath, lang){
 }
 
 // spawns a process and returns the process object
-async function execCode(dirname, lang, mode, timeout){
-	const docker_cmd = `docker run --rm `+
+async function execCode(dirname, lang, mode, timeout, jobId){
+	const docker_cmd = `docker run --rm --name '${jobId}' `+
 					   `-v ${dirname}:/usr/src/app -w /usr/src/app `+
 					   `--memory="128m" --memory-swap="128m" --cpus="1.0" `+
 					   `--ulimit fsize=${25 * 1024 * 1024} --ulimit core=0 --pids-limit 20 `;
@@ -48,23 +50,23 @@ async function execCode(dirname, lang, mode, timeout){
 		if (Number(mode) === 0){
 				if (lang === "Python"){
 					image = "python:3.10-slim";
-					runCmd = `bash -c "timeout ${timeout}s python3 ${filename}"`;
+					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
 				else if (lang === "C" || lang === "C++"){
 					const compiler = lang === "C" ? "gcc" : "g++";
 					image = "gcc:latest";
-					runCmd = `bash -c "timeout ${timeout}s ${compiler} -Wall ${filename} -o a.out && ./a.out"`;
+					runCmd = `timeout ${timeout}s bash -c "${compiler} -Wall ${filename} -o a.out && ./a.out"`;
 				}else{
 					throw new Error(`Execution for language ${lang} is not configured.`);
 				}
 		}else if (Number(mode) === 1){
 				if (lang === "Python"){
 					image = "python:3.10-slim";
-					runCmd = `bash -c "timeout ${timeout}s python3 ${filename}"`;
+					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
 				else if (lang === "C" || lang === "C++"){
 					image = "gcc:latest";
-					runCmd = `bash -c "timeout 10s make && timeout ${timeout}s ./a.out"`;
+					runCmd = `timeout ${timeout}s bash -c "make && ./a.out"`;
 				}else{
 					throw new Error(`Execution for language ${lang} is not configured.`);
 				}
@@ -89,4 +91,11 @@ async function execCode(dirname, lang, mode, timeout){
 	}
 }
 
-module.exports = {execCode};
+async function killContainer(jobId){
+	const name = `${jobId}`;
+	await execPromise(`docker kill ${name}`,(error,stdout,stdrr)=>{
+		return json({error:error});
+	});
+}
+
+module.exports = {execCode, killContainer};

@@ -38,7 +38,7 @@ async function startworker(){
 			const dirPath = await extractFile(jobId, jobData.zipPath, jobData.lang);
 
 			// execCode
-			const {stdout, stderr} = await execCode(dirPath, jobData.lang, jobData.mode,timeout = jobData.timeout);
+			const {stdout, stderr} = await execCode(dirPath, jobData.lang, jobData.mode,timeout = jobData.timeout, jobId);
 
 			// update jobData in redis
 			jobData.completed = new Date().toISOString();

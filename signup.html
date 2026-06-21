@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Distributed Job Scheduler</title>
+	<style>
+		
+	</style>
+</head>
+<body>
+<div class="card">
+	<h2>Signup</h2>
+	<input type="text" id="userdata" placeholder="Registered Username or email"/>
+	<input type="password" id="password" placeholder="Password"/>
+	<button id="signupBtn" onclick="signup()">Signup</button>
+</div>
+<script>
+	const API_URL = 'http://localhost:3000';
+    function signup(){
+        const userdata = document.getElementById('userdata').value;
+        const password = document.getElementById('password').value;
+
+        fetch(`${API_URL}/signup`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username: userdata, email: userdata, password })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.message){
+                alert('Signup successful!');
+                window.location.href = 'login.html';
+            } else {
+                alert('Signup failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred during signup.');
+        });
+    }
+</script>
+</body>
+</html>

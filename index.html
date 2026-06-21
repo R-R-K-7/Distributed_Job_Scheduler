@@ -47,6 +47,28 @@
 	</style>
 </head>
 <body>
+<script>
+	async function checkAuth(){
+		const token = localStorage.getItem('token');
+		if(!token){
+			alert('You are not logged in. Redirecting to login page.');
+			window.location.href = 'login.html';
+		}
+		const verifyResponse = await fetch('http://localhost:3000/verify', {
+			method: 'GET',
+			headers: {
+				'Authorization': `Bearer ${token}`
+			}
+		});
+		const verifyData = await verifyResponse.json();
+		if (!verifyData.ok) {
+			alert('Invalid access. Please log in again.');
+			localStorage.removeItem('token');
+			window.location.href = 'login.html';
+		}
+	}
+	checkAuth();
+</script>
 <div class="card">
 	<h2>Submit Project</h2>
 	<input type="file" id="fileZip" accept=".zip"/>
@@ -137,12 +159,12 @@
 				statusText.innerText = `Status : ${data.status}`;
 				if(data.status === 'COMPLETED' || data.status === 'TERMINATED'){
 					clearInterval(pollInterval);
-					if (data.status === 'TERMINATED' || data.error){
+					if (data.status === 'TERMINATED' || data.stderr){
 						outputTerminal.classList.add('error');
-						outputTerminal.innerText = data.error;
+						outputTerminal.innerText = data.stderr;
 					}else{
 						outputTerminal.classList.remove('error');
-						outputTerminal.innerText = data.output || '';
+						outputTerminal.innerText = data.stdout || '';
 					}
 					btn.disabled = false;
 				}
