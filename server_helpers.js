@@ -28,7 +28,7 @@ async function verifyToken(token){
 }
 
 async function getJobs(userId){
-    query = `select * from jobs where user_id = $1 order by created desc`;
+    const query = `select * from jobs where user_id = $1 order by created desc`;
     const result = await dbPool.query(query,[userId]);
     return result.rows;
 }
@@ -47,23 +47,55 @@ async function insertJob(job){
     return result;
 }
 
-async function getJobData(jobId, attr){
-    const query = `select ${attr} from jobs where id = $1`;
-    const result = await dbPool.query(query,[jobId]);
-    return result.rows[0];
+async function getJobData(jobId, attr='*'){
+    const allowed_attr = ['status', 'stdout', 'stderr', 'completed','*',];
+    if (!allowed_attr.includes(attr)){
+        console.error(`Unauthorized operation`);
+        throw new Error(`Invalid attribute requested`);
+    }
+    try{
+        const query = `select ${attr} from jobs where id = $1`;
+        const result = await dbPool.query(query,[jobId]);
+        return result.rows[0];
+    }catch(err){
+        console.error(`Database error finding attribute : ${attr}, jobId : ${jobId} : ${err}`);
+        return null;
+    }
 }
 
 async function deleteJob(jobId){
-    query = `delete from jobs where id = $1`;
+    const query = `delete from jobs where id = $1`;
     const result = await dbPool.query(query,[jobId]);
-    return result.rowCount === 1;
+    if (result.rowCount === 1){
+        return;
+    }else{
+        throw new Error(`Database Error : Cannot delete jobId ${jobId} from database`);
+    }
 }
 
-async function jobUpdate(attr, value){
-    query = 'update jobs $1 = $2';
-    const result = await dbPool.query(query,[attr,value]);
-    return result.rowCount===1;
+async function updateJob(jobId, attrs, values){
+    if (!Array.isArray(attrs) || !Array.isArray(values) || !(attrs.length == values.length)){
+        throw new Error(`Attributes and values should be equal length arrays`);
+    }
+    if (attrs.length==0){
+        return true;
+    }
+    const allowed_attrs = ['status', 'stdout', 'stderr', 'completed'];
+    for (const attr of attrs){
+        if (!allowed_attr.includes(attr)){
+            throw new Error(`Attempt to update unauthorized attribute "${attr}"`)
+        }
+    }
+    try{
+        const clause = attrs.map((attr,idx)=>`attr = $${idx+1}`).join(',');
+        const jobIdIdx = attrs.length + 1;
+        const query = `update jobs set ${clause} where id = $${jobIdIdx}`;
+        const result = await dbPool.query(query,[...value, jobId]);
+        return result.rowCount===1;
+    }catch(err){
+        throw new Error(`Database Error : Failed to update "${attrs}" | ${err}`);
+    }
 }
     
 
-module.exports = {verifyToken, getJobs};
+module.exports = {verifyToken, getJobs, getJobData, deleteJob, updateJob};

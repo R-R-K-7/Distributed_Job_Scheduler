@@ -20,78 +20,78 @@ const redisClient = createClient({
 redisClient.on('error',(err)=>console.error('Redis Error : ',err));
 
 app.delete('/jobs/:jobId/delete', async (req,res)=>{
+	// kill job container if running
+	// remove job entry from db and redisQueue
+
+	// verify jwt
 	const jobId = req.params.jobId;
 	const token = req.headers.authorization?.split(' ')[1];
 	const isValid = await verifyToken(token);
 	if (!isValid){
 		return res.status(401).json({error : 'Invalid access token'});
 	}
-	// kill the job and remove from database
 	try{
 		const statusCheck = await getJobData(jobId);
-		if (statusCheck.length === 0){
+		if (!statusCheck){
 			return res.status(404).json({error : 'Job not found'});
 		}
 		const status = statusCheck.status;
 		if (status==='COMPLETED'||status==='TERMINATED'){
-			const delDB = await deleteJob(jobId);
-			if (!delDB){
-				return res.status(500).json({error:'Killed but cannot delete job from database'});
-			}
+			// if already completed, remove from database
+			await deleteJob(jobId);
 			return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
 		}
 		if (status==='QUEUED'){
+			// if queued, remove from database, then from redisQueue
 			const removeCount = await redisClient.lRem('job_queue',0,jobId);
 			if (removeCount > 0){
+				await redisClient.lRem('temp_queue', 1, jobId);
 				return res.status(200).json({message:`Deleted job : ${jobId} successfully`});
 			}
 			// if removedCount is zero, race-condition -> job was assigned to a client at the time of checking
 		}
-		const response = await killContainer(jobId);
-		if (response.error){
-			return res.status(500).json({error : 'Cannot kill job'});
-		}
-		const delDB = await deleteJob(jobId);
-		if (!delDB){
-			return res.status(500).json({error:'Killed but cannot remove job from database'});
-		}
+		// handle race condition -> kill container and remove from redisTempQueue and database
+		await killContainer(jobId);
+		await deleteJob(jobId);
+		await redisClient.lRem('temp_queue',jobId,1);
 		return res.status(200).json({message : 'Job deleted successfully'});
 	}catch(err){
-		return res.status(500).json({error : 'Cannot delete job'});
+		return res.status(500).json({error : `Cannot delete job : ${err}`});
 	}
 });
 
 app.post('/jobs/:jobId/kill', async (req,res)=>{
+	// kill the job if running -> do not remove from database but from redisQueue
 	const jobId = req.params.jobId;
 	const token = req.headers.authorization?.split(' ')[1];
 	const isValid = await verifyToken(token);
 	if (!isValid){
 		return res.status(401).json({error : 'Invalid access token'});
 	}
-	// kill the job 
+	// kill the job and update status on database
 	try{
-		const statusCheck = await getJobData(jobId);
-		if (statusCheck.length === 0){
+		const statusCheck = await getJobData(jobId,'status');
+		if (!statusCheck){
 			return res.status(404).json({error : 'Job not found'});
 		}
 		const status = statusCheck.status;
-		if (status==='COMPLETED'||status==='TERMINATED'){
+		if (status==='COMPLETED'||status==='TERMINATED'||status==='KILLED'||status==='FAILED'){
 			return res.status(400).json({error : `Job already ${status}`});
 		}
 		if (status==='QUEUED'){
 			const removeCount = await redisClient.lRem('job_queue',0,jobId);
 			if (removeCount > 0){
+				await updateJob(jobId, 'status', 'KILLED');
 				return res.status(200).json({message:`Killed job : ${jobId} successfully`});
 			}
 			// if removedCount is zero, race-condition -> job was assigned to a client at the time of checking
 		}
-		const response = await killContainer(jobId);
-		if (response.error){
-			return res.status(500).json({error : 'Cannot kill job'});
-		}
-		return res.status(200).json({message : 'Job killed successfully'});
+		await killContainer(jobId);
+		await updateJob(jobId, 'status', 'KILLED');
+		await redisClient.lRem('temp_queue', 1, jobId);
+		return res.status(200).json({message : `Killed job : ${jobId} successfully`});
 	}catch(err){
-		return res.status(500).json({error : 'Cannot kill job'});
+		return res.status(500).json({error : `Cannot kill job : ${err}`});
 	}
 });
 

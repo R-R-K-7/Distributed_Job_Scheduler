@@ -77,14 +77,20 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 		const {stdout,stderr} = await execPromise(finalCmd);
 		return {stdout, stderr};
 	}catch(err){
+		// Time limit exceeded
 		if (err.code === 124) {
             throw new Error(`Time Limit Exceeded: Process took longer than the allocated ${timeout} seconds.`);
-        }
-		if (err.message.startsWith('Command failed: docker')){
-			console.error(`Docker Error : ${err.message}`);
+        }else if (err.code === 137){
+			// out of memory or killed
+			throw new Error('Process terminated : Out of memory or Killed');
+		}else if (err.code >= 125 && err.code <= 127){
+			// daemon errors
 			throw new Error(`Internal Server Error. Please try again later.`);
 		}
-		throw new Error(`${err.message}\n${err.stderr || ''}`.trim());
+		if (err.message && err.message.trim().length > 0){
+			throw new Error(err.message.trim());
+		}
+		throw new Error(`Process crashed : Exit code : ${err.code}\n${err.message}\n${err.stderr || ''}`.trim());
 	}finally{
 		// remove directory
 		await fs.rm(dirname, {recursive : true});
