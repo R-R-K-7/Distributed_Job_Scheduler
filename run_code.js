@@ -77,23 +77,28 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 		const {stdout,stderr} = await execPromise(finalCmd);
 		return {stdout, stderr};
 	}catch(err){
+		console.error(err.message);
 		// Time limit exceeded
 		if (err.code === 124) {
-            throw new Error(`Time Limit Exceeded: Process took longer than the allocated ${timeout} seconds.`);
+			err.status = 'TERMINATED';
+			err.message = `Time Limit Exceeded: Process took longer than the allocated ${timeout} s`;
         }else if (err.code === 137){
 			// out of memory or killed
-			throw new Error('Process terminated : Out of memory or Killed');
+			err.status = 'KILLED';
+			err.message = 'Process terminated : Out of memory or Killed';
 		}else if (err.code >= 125 && err.code <= 127){
 			// daemon errors
-			throw new Error(`Internal Server Error. Please try again later.`);
+			err.status = 'TERMINATED';
+			err.message = `Internal Server Error. Please try again later`;
+		}else{
+			err.status = 'FAILED';
+			err.message = (err.stderr && err.stderr.trim().length > 0) ? err.stderr.trim() : 
+						   `Process crashed with exit code : ${err.code || 'unknown'}`;
 		}
-		if (err.message && err.message.trim().length > 0){
-			throw new Error(err.message.trim());
-		}
-		throw new Error(`Process crashed : Exit code : ${err.code}\n${err.message}\n${err.stderr || ''}`.trim());
+		throw err;
 	}finally{
 		// remove directory
-		await fs.rm(dirname, {recursive : true});
+		await fs.rm(dirname, {recursive : true, force : true});
 	}
 }
 

@@ -4,8 +4,8 @@ const {createClient} = require("redis");
 const {uploadMiddleWare} = require("./post_file.js");
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const {SignJWT, errors} = require('jose');
-const {verifyToken, getJobs, getJobData, deleteJob} = require('./server_helpers.js');
+const {SignJWT} = require('jose');
+const {verifyToken, getJobs, getJobData, deleteJob, updateJob} = require('./server_helpers.js');
 const {killContainer} = require('run_code.js');
 
 const app = express();
@@ -19,10 +19,7 @@ const redisClient = createClient({
 
 redisClient.on('error',(err)=>console.error('Redis Error : ',err));
 
-app.delete('/jobs/:jobId/delete', async (req,res)=>{
-	// kill job container if running
-	// remove job entry from db and redisQueue
-
+async function verifyHeader(req,res,next){
 	// verify jwt
 	const jobId = req.params.jobId;
 	const token = req.headers.authorization?.split(' ')[1];
@@ -30,31 +27,41 @@ app.delete('/jobs/:jobId/delete', async (req,res)=>{
 	if (!isValid){
 		return res.status(401).json({error : 'Invalid access token'});
 	}
+	next();
+}
+
+app.delete('/jobs/:jobId/delete', verifyHeader, async (req,res)=>{
+	// kill job container if running
+	// remove job entry from db and redisQueue
+	const jobId = req.params.jobId;
 	try{
-		const statusCheck = await getJobData(jobId);
+		const statusCheck = await getJobData(jobId,'status');
 		if (!statusCheck){
 			return res.status(404).json({error : 'Job not found'});
 		}
 		const status = statusCheck.status;
-		if (status==='COMPLETED'||status==='TERMINATED'){
+		if (['COMPLETED', 'TERMINATED', 'KILLED', 'FAILED'].includes(status)){
 			// if already completed, remove from database
-			await deleteJob(jobId);
+			const ret = await deleteJob(jobId);
+			if (!ret){
+				// internal server error, cannot delete
+				return res.status(500).json({message : `Failed to delete job : ${jobId}`});
+			}
 			return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
 		}
-		if (status==='QUEUED'){
-			// if queued, remove from database, then from redisQueue
-			const removeCount = await redisClient.lRem('job_queue',0,jobId);
-			if (removeCount > 0){
-				await redisClient.lRem('temp_queue', 1, jobId);
-				return res.status(200).json({message:`Deleted job : ${jobId} successfully`});
-			}
-			// if removedCount is zero, race-condition -> job was assigned to a client at the time of checking
+		// cancel the job in redis queue
+		await redisClient.set(`deleting:${jobId}`,'true',{expiration : 3600});
+		const removed = await redisClient.lRem('job_queue',0,jobId);
+		if (removed>0){
+			// successfully deleted job
+			return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
 		}
-		// handle race condition -> kill container and remove from redisTempQueue and database
-		await killContainer(jobId);
-		await deleteJob(jobId);
-		await redisClient.lRem('temp_queue',jobId,1);
-		return res.status(200).json({message : 'Job deleted successfully'});
+		// Job is RUNNING
+		// Update status to CANCELLING for UI's benefit
+		await updateJob(jobId,[status],['CANCELLING']);
+		// broadcast kill signal to kill the job in corresponding worker node
+		await redisClient.publish('kill_channel',jobId);
+		return res.status(200).json({message : `Kill signal dispatched to all worker nodes successfully`});
 	}catch(err){
 		return res.status(500).json({error : `Cannot delete job : ${err}`});
 	}
