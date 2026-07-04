@@ -1,12 +1,11 @@
 const express = require("express");
 const {v4:uuidv4} = require("uuid");
-const {createClient} = require("redis");
+const {createClient, RedisSentinel} = require("redis");
 const {uploadMiddleWare} = require("./post_file.js");
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const {SignJWT} = require('jose');
-const {verifyToken, getJobs, getJobData, deleteJob, updateJob} = require('./server_helpers.js');
-const {killContainer} = require('run_code.js');
+const {verifyToken, getJobs, getJobData, deleteJob, insertJob, updateJob, insertUser,getUserData} = require('./server_helpers.js');
 
 const app = express();
 
@@ -15,7 +14,7 @@ app.use(express.json());
 
 // create redis client
 const redisClient = createClient({
-		url : 'redis://127.0.0.1:6380'});
+		url : 'redis://127.0.0.1:6379'});
 
 redisClient.on('error',(err)=>console.error('Redis Error : ',err));
 
@@ -23,16 +22,15 @@ async function verifyHeader(req,res,next){
 	// verify jwt
 	const jobId = req.params.jobId;
 	const token = req.headers.authorization?.split(' ')[1];
-	const isValid = await verifyToken(token);
-	if (!isValid){
+	const payload = await verifyToken(token);
+	if (!payload){
 		return res.status(401).json({error : 'Invalid access token'});
 	}
+	req.user = payload;
 	next();
 }
 
-app.delete('/jobs/:jobId/delete', verifyHeader, async (req,res)=>{
-	// kill job container if running
-	// remove job entry from db and redisQueue
+async function cancelJob(req,res,isDelete=false){
 	const jobId = req.params.jobId;
 	try{
 		const statusCheck = await getJobData(jobId,'status');
@@ -40,93 +38,63 @@ app.delete('/jobs/:jobId/delete', verifyHeader, async (req,res)=>{
 			return res.status(404).json({error : 'Job not found'});
 		}
 		const status = statusCheck.status;
-		if (['COMPLETED', 'TERMINATED', 'KILLED', 'FAILED'].includes(status)){
-			// if already completed, remove from database
-			const ret = await deleteJob(jobId);
-			if (!ret){
-				// internal server error, cannot delete
-				return res.status(500).json({message : `Failed to delete job : ${jobId}`});
+		if (['COMPLETED','TERMINATED','KILLED','FAILED'].includes(status)){
+			if (!isDelete){
+				return res.status(400).json({error : `Job already ${status}`});
+			}else{
+				// if already completed, remove from database
+				const ret = await deleteJob(jobId);
+				if (!ret){
+					// internal server error, cannot delete
+					return res.status(500).json({message : `Failed to delete job : ${jobId}`});
+				}
+				return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
 			}
-			return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
 		}
+		// If function reaches here, it is queued, or running
 		// cancel the job in redis queue
-		await redisClient.set(`deleting:${jobId}`,'true',{expiration : 3600});
+		const cancelType = (isDelete) ? `deleting:${jobId}` : `killing:${jobId}`;
+		await redisClient.set(cancelType,'true',{EX:3600});
 		const removed = await redisClient.lRem('job_queue',0,jobId);
 		if (removed>0){
-			// successfully deleted job
-			return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
+			if (isDelete){
+				// successfully deleted job
+				return res.status(200).json({message : `Deleted job : ${jobId} successfully`});
+			}else{
+				// successfully killed job
+				return res.status(200).json({message : `Killed job : ${jobId} successfully`});
+			}
 		}
 		// Job is RUNNING
-		// Update status to CANCELLING for UI's benefit
-		await updateJob(jobId,[status],['CANCELLING']);
+		// Update status to CANCELLING for UI to update
+		await updateJob(jobId,['status'],['CANCELLING']);
 		// broadcast kill signal to kill the job in corresponding worker node
 		await redisClient.publish('kill_channel',jobId);
 		return res.status(200).json({message : `Kill signal dispatched to all worker nodes successfully`});
 	}catch(err){
-		return res.status(500).json({error : `Cannot delete job : ${err}`});
+		if (isDelete){
+			return res.status(500).json({error : `Cannot delete job : ${err}`});
+		}else{
+			return res.status(500).json({error : `Cannot kill job : ${err}`});
+		}
 	}
+}
+
+app.delete('/jobs/:jobId/delete', verifyHeader, async (req,res)=>{
+	await cancelJob(req,res,true);
 });
 
-app.post('/jobs/:jobId/kill', async (req,res)=>{
-	// kill the job if running -> do not remove from database but from redisQueue
-	const jobId = req.params.jobId;
-	const token = req.headers.authorization?.split(' ')[1];
-	const isValid = await verifyToken(token);
-	if (!isValid){
-		return res.status(401).json({error : 'Invalid access token'});
-	}
-	// kill the job and update status on database
-	try{
-		const statusCheck = await getJobData(jobId,'status');
-		if (!statusCheck){
-			return res.status(404).json({error : 'Job not found'});
-		}
-		const status = statusCheck.status;
-		if (status==='COMPLETED'||status==='TERMINATED'||status==='KILLED'||status==='FAILED'){
-			return res.status(400).json({error : `Job already ${status}`});
-		}
-		if (status==='QUEUED'){
-			const removeCount = await redisClient.lRem('job_queue',0,jobId);
-			if (removeCount > 0){
-				await updateJob(jobId, 'status', 'KILLED');
-				return res.status(200).json({message:`Killed job : ${jobId} successfully`});
-			}
-			// if removedCount is zero, race-condition -> job was assigned to a client at the time of checking
-		}
-		await killContainer(jobId);
-		await updateJob(jobId, 'status', 'KILLED');
-		await redisClient.lRem('temp_queue', 1, jobId);
-		return res.status(200).json({message : `Killed job : ${jobId} successfully`});
-	}catch(err){
-		return res.status(500).json({error : `Cannot kill job : ${err}`});
-	}
+app.post('/jobs/:jobId/kill', verifyHeader, async (req,res)=>{
+	await cancelJob(req,res,false);
 });
 
-app.get('/jobs', async (req,res)=>{
-	const token = req.headers.authorization?.split(' ')[1];
-	if (!token){
-		return res.status(401).json({error : 'Invalid access token'});
-	}
+app.get('/jobs', verifyHeader, async (req,res)=>{
 	try{
-		const isValid = await verifyToken(token);
-		if (!isValid){
-			return res.status(401).json({error : 'Invalid access token'});
-		}
-		const userId = payload.userId;
+		const userId = req.user.userId;
 		const jobs = await getJobs(userId);
 		return res.status(200).json({jobs});
 	}catch(err){
 		return res.status(500).json({error : 'Cannot retrieve jobs'});
-	}
-});
-
-app.get('/verify', async (req,res)=>{
-	const token = req.headers.authorization?.split(' ')[1];
-	const isValid = await verifyToken(token);
-	if (isValid){
-		return res.status(200).json({message : 'Verified token'});
-	}else{
-		return res.status(401).json({error : 'Invalid access token'});
 	}
 });
 
@@ -136,9 +104,11 @@ app.post('/signup',async (req,res)=>{
 		return res.status(400).json({error : 'Email, username and password are required'});
 	}
 	try{
-		const hashedPassword = await bcrypt.hash(password,255);
-		const query = `insert into users (username, email, password) values ($1, $2, $3)`;
-		await dbPool.query(query,[username,email,hashedPassword]);
+		const hashedPassword = await bcrypt.hash(password,10);
+		const user = {username:username,password:hashedPassword,email:email};
+		if (await insertUser(user)==0){
+			return res.status(500).json({error:'Failed to add new user'});
+		}
 		res.status(201).json({message : 'User created successfully'});
 	}catch(err){
 		if (err.code === '23505'){
@@ -155,12 +125,10 @@ app.post('/login',async (req,res)=>{
 		return res.status(400).json({error : 'Email / username and password are required'});
 	}
 	try{
-		const query = `select * from users where email = $1 or username = $2`;
-		const result = await dbPool.query(query,[email,username]);
-		if (result.rows.length === 0){
+		const user = await getUserData(username,email);
+		if (!user){
 			return res.status(401).json({error : 'Invalid credentials'});
 		}
-		const user = result.rows[0];
 		const isMatch = await bcrypt.compare(password,user.password);
 		if (!isMatch){
 			return res.status(401).json({error : 'Wrong password'});
@@ -183,6 +151,9 @@ app.post('/submit',uploadMiddleWare,async (req,res)=>{
 	const mode = req.body.mode;
 	const timeout = req.body.timeout;
 	try{
+		if (!req.file){
+			return res.status(400).json({error:'No file submitted'})
+		}
 		const job = {
 			id : jobId,
 			status : 'QUEUED',
@@ -210,7 +181,7 @@ app.post('/submit',uploadMiddleWare,async (req,res)=>{
 	}
 });
 
-app.get('/status/:id',async (req,res)=>{
+app.get('/status/:id', verifyHeader, async (req,res)=>{
 	const jobId = req.params.id;
 	try{
 		const response = await getJobData(jobId,'*');

@@ -17,7 +17,7 @@ const fileMap = {"Python" : "main.py",
 async function findMain(dirpath, lang){
 	const items = await fs.readdir(dirpath,{withFileTypes : true});
 	if (!fileMap[lang]){
-		throw new Error(`Language ${lang} is not supported.`);
+		throw new Error(`Execution for language ${lang} is not configured.`);
 	}
 	for (const item of items){
 		if (item.isFile() && item.name === fileMap[lang]){

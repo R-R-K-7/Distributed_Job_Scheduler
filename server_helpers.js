@@ -1,3 +1,4 @@
+require('dotenv').config()
 const {jwtVerify} = require('jose');
 const {Pool} = require('pg');
 const {ERROR_SOURCE} = require('./constants.js');
@@ -12,9 +13,14 @@ const dbPool = new Pool({
     idleTimeoutMillis : 30000,
 });
 
-dbPool.query('SELECT NOW()')
-    .then(()=> console.log('Connected to PostgreSQL database'))
-    .catch(err => console.error('Error connecting to PostgreSQL database : ',err));
+dbPool.connect((err,client,release)=>{
+    if (err){
+        console.error('Error connecting to database');
+    }else{
+        console.log('Successfully connected to database');
+    }
+    if (client) release();
+});
 
 async function verifyToken(token){
     if (!token){
@@ -125,5 +131,33 @@ async function updateJob(jobId, attrs, values){
     }
 }
     
+async function insertUser(user){
+    try{
+        const query = `insert into user (username, password, email, created) 
+                       values ($1,$2,$3,$4)`;
+        const result = await dbPool.query(query,[
+            user.username,
+            user.password,
+            user.email,
+            new Date().toISOString(),
+        ]);
+        // return 1 if success -> rowCount = number of rows affected
+        return result.rowCount === 1;
+    }catch(err){
+        err.source = ERROR_SOURCE.DATABASE;
+        throw err;
+    }
+}
 
-module.exports = {verifyToken, getJobs, insertJob, getJobData, deleteJob, updateJob};
+async function getUserData(username, email){
+    try{
+        const query = `select * from users where username = $1 or email = $2`;
+        const result = await dbPool.query(query,[username,email]);
+        return result.rows[0];
+    }catch(err){
+        err.source = ERROR_SOURCE.DATABASE;
+        throw err;
+    }
+}
+
+module.exports = {verifyToken, getJobs, insertJob, getJobData, deleteJob, updateJob, insertUser,getUserData};

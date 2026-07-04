@@ -10,7 +10,7 @@ async function extractFile(jobId, zipPath, lang){
 	try{
 		// extension for lang
 		if (!['c', 'c++','python'].includes(lang.toLowerCase()))
-			throw new Error(`Invalid Language : ${lang}`);
+			throw new Error(`Execution for language ${lang} is not configured.`);
 
 		const dirPath = path.join(os.tmpdir(), `sandbox_${jobId}`);
 
