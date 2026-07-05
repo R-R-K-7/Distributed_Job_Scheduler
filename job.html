@@ -48,22 +48,30 @@
 </head>
 <body>
 <script>
+	const API_URL = 'http://localhost:3000';
 	async function checkAuth(){
 		const token = localStorage.getItem('token');
 		if(!token){
 			alert('You are not logged in. Redirecting to login page.');
 			window.location.href = 'login.html';
+			return;
 		}
-		const verifyResponse = await fetch('http://localhost:3000/verify', {
-			method: 'GET',
-			headers: {
-				'Authorization': `Bearer ${token}`
+		try{
+			const verifyResponse = await fetch(`${API_URL}/verify`, {
+				method: 'GET',
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+			if (!verifyResponse.ok) {
+				alert('Invalid access. Please log in again.');
+				//localStorage.removeItem('token');
+				window.location.href = 'login.html';
+				return;
 			}
-		});
-		const verifyData = await verifyResponse.json();
-		if (!verifyData.ok) {
-			alert('Invalid access. Please log in again.');
-			localStorage.removeItem('token');
+		}catch(err){
+			console.error(err);
+			alert(`Unable to load page. Try again later`);
 			window.location.href = 'login.html';
 		}
 	}
@@ -73,9 +81,9 @@
 	<h2>Submit Project</h2>
 	<input type="file" id="fileZip" accept=".zip"/>
 	<select id="lang">
-		<option value="Python">Python</option>
-		<option value="C">C</option>
-		<option value="C++">C++</option>
+		<option value="python">Python</option>
+		<option value="c">C</option>
+		<option value="c++">C++</option>
 	</select>
 	<select id="mode">
 		<option value="1">With Makefile</option>
@@ -92,8 +100,6 @@
 	<div id="output" class="terminal">Output will appear here...</div>
 </div>
 <script>
-	const API_URL = 'http://localhost:3000';
-	let pollInterval = null;
 	async function submitJob(){
 		const fileInput = document.getElementById('fileZip');
 		const lang = document.getElementById('lang');
@@ -101,7 +107,9 @@
 		const btn = document.getElementById('submitBtn');
 		const statusText = document.getElementById('statusText');
 		const outputTerminal = document.getElementById('output');
-
+		const token = localStorage.getItem('token');
+		console.error('mode:',mode.value);
+		
 		if(fileInput.files.length === 0){
 			alert('Please select a zip file to submit.');
 			return;
@@ -120,8 +128,9 @@
 		const timeoutUnit = document.getElementById('timeoutUnit').value;
 		const timeoutInSeconds = calculateTimeout(timeoutValue, timeoutUnit);
 		if (timeoutInSeconds > 2 * 60 * 60){ // limit to 2 hours
-			alert('Please enter a valid timeout value. Maximum allowed is 2 hours.');
+			alert('Please enter a valid timeout value. Maximum is 2 hours.');
 			btn.disabled = false;
+			statusText.textContent = '';
 			return;
 		}
 		formData.append('timeout', timeoutInSeconds * 1000); // convert to milliseconds
@@ -130,38 +139,60 @@
 			// send to api
 			const response = await fetch(`${API_URL}/submit`, {
 				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${token}`,
+				},
 				body: formData
 			});
 			const data = await response.json();
-
+			
 			if (response.status == 202){
-				statusText.innerText = `Status : QUEUED`;
-				startPolling(data.jobId);
+				statusText.innerText = `Job queued...`;
+				await startPolling(data.jobId);
+			}else if (response.status == 401){
+				// the jwt token has expired
+				alert('Your session has expired. Login again');
+				localStorage.removeItem('token');
+				window.location.href = 'login.html';
+				return;
 			}else{
 				throw new Error(data.error || 'Upload Failed');
 			}
 		}catch(err){
-			statusText.innerText = `Status : TERMINATED`;
-			outputTerminal.innerText = err.message;
+			statusText.innerText = `Job failed.`;
+			outputTerminal.innerText = err.message || '';
 			outputTerminal.classList.add('error');
 			btn.disabled = false;
 		}
 	}
-	function startPolling(jobId){
+	let pollInterval = null;
+	async function startPolling(jobId){
 		const statusText = document.getElementById('statusText');
 		const outputTerminal = document.getElementById('output');
 		const btn = document.getElementById('submitBtn');
+		const token = localStorage.getItem('token');
 		// poll every 1000ms for status updates
 		pollInterval = setInterval(async () =>{
 			try{
-				const response = await fetch(`${API_URL}/status/${jobId}`);
+				const response = await fetch(`${API_URL}/status/${jobId}`,{
+					method: 'GET',
+					headers: {
+						'Authorization': `Bearer ${token}`,
+					},
+				});
 				const data = await response.json();
-				statusText.innerText = `Status : ${data.status}`;
-				if(data.status === 'COMPLETED' || data.status === 'TERMINATED'){
+				statusText.innerText = `Status : ${data.status || 'Unknown'}`;
+				if(['COMPLETED','TERMINATED','FAILED','KILLED'].includes(data.status)){
 					clearInterval(pollInterval);
-					if (data.status === 'TERMINATED' || data.stderr){
+					if (['TERMINATED', 'FAILED','KILLED'].includes(data.status) || data.stderr){
 						outputTerminal.classList.add('error');
-						outputTerminal.innerText = data.stderr;
+						outputTerminal.innerText = data.stderr || '';
+					}else if (response.status == 401){
+						// the jwt token has expired
+						alert('Your session has expired. Login again');
+						localStorage.removeItem('token');
+						window.location.href = 'login.html';
+						return;					
 					}else{
 						outputTerminal.classList.remove('error');
 						outputTerminal.innerText = data.stdout || '';
@@ -170,9 +201,9 @@
 				}
 			}catch(err){
 				clearInterval(pollInterval);
-				statusText.innerText = `Status : API Disconnected`;
-				outputTerminal.innerText = err.message;
+				statusText.innerText = `Server Error`;
 				outputTerminal.classList.add('error');
+				outputTerminal.innerText = err.message || '';
 				btn.disabled = false;
 			}
 		},1000);

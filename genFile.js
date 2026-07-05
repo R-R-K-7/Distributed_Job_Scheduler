@@ -6,16 +6,16 @@ const extract = require('extract-zip');
 const admZip = require('adm-zip');
 const {ERROR_SOURCE} = require('./constants.js');
 
-async function extractFile(jobId, zipPath, lang){
+async function extractFile(jobId, zippath, lang){
 	try{
 		// extension for lang
-		if (!['c', 'c++','python'].includes(lang.toLowerCase()))
+		if (!['c', 'c++','python'].includes(lang))
 			throw new Error(`Execution for language ${lang} is not configured.`);
 
 		const dirPath = path.join(os.tmpdir(), `sandbox_${jobId}`);
 
 		// make sure that zip file when extracted doesn't exceed 10 MB of space
-		const zip = new admZip(zipPath);
+		const zip = new admZip(zippath);
 		const entries = zip.getEntries();
 		let totalSize = 0;
 		for (const entry of entries){
@@ -32,7 +32,7 @@ async function extractFile(jobId, zipPath, lang){
 		await fs.mkdir(dirPath, {recursive : true});
 
 		// extract zip file
-		await extract(zipPath, {dir : dirPath});
+		await extract(zippath, {dir : dirPath});
 		// Return directory Path
 		return dirPath;
 	}catch(err){

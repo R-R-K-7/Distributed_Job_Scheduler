@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Distributed Job Scheduler</title>
+	<style>
+    </style>
+</head>
+<body>
+    <h2>Job History</h2>
+    <div id="jobs_table" class="job_table">
+        <div  class="job_table_element">
+            <!-- fields : serial-no.|jobId(10 characters)|submission-time|
+            completion-time|status|timeout|with/without makefile|language|job-name -->
+            <!-- element-fields : name|language|status|kill|delete -->
+        </div>
+    </div>
+</body>
+<script>
+	const API_URL = 'http://localhost:3000';
+    async function killJob(jobId){
+        if (!jobId){
+            return;
+        }
+        const token = localStorage.getItem('token');
+        try{
+            const response = await fetch(`${API_URL}/jobs/${jobId}/kill`,{
+                method: 'POST',
+                headers: {
+                    'Authorization' : `Bearer ${token}`,
+                },
+            });
+            if (response.status!=200){
+                alert('Failed to kill job');
+                return;
+            }
+        }catch(err){
+            alert('Failed to kill job');
+        }
+    }
+
+    async function deleteJob(jobId){
+        if (!jobId){
+            return;
+        }
+        const token = localStorage.getItem('token');
+        try{
+            const response = await fetch(`${API_URL}/jobs/${jobId}/delete`,{
+                method: 'DELETE',
+                headers: {
+                    'Authorization' : `Bearer ${token}`,
+                },
+            });
+            if (response.status!=200){
+                alert('Failed to delete job');
+                return;
+            }
+            // remove from table
+            document.getElementById(jobId).remove();
+        }catch(err){
+            alert('Failed to delete job');
+        }
+    }
+
+    async function startDashboardPolling() {
+        const token = localStorage.getItem('token');
+        const dashboardPollInterval = setInterval(async ()=>{
+            try{
+                const response = await fetch(`${API_URL}/jobs`,{
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+                if (response.status === 200){
+                    const data = await response.json();
+                    const jobs = data.rows;
+                    jobs.forEach(job=>{
+                        const row = document.getElementById(job.id);
+                        // some jobs might have been deleted, so check if row exists
+                        if (row){
+                            const statusDiv = row.children[3];
+                            if (statusDiv.innerText !== job.status){
+                                statusDiv.classList.remove(`job_status_${statusDiv.innerText.toLowerCase()}`);
+                                statusDiv.classList.add(`job_status_${job.status.toLowerCase()}`);
+                                statusDiv.innerText = job.status;
+                            }
+                        }
+                    });
+                }
+            }catch(err){
+                console.error('Polling | Dashboard status update error');
+                return;
+            }
+        },3000);
+    }
+    
+    async function add_jobs(jobId){
+        const token = localStorage.getItem('token');
+        const table = document.getElementById('jobs_table');
+        try{
+            const response = await fetch(`${API_URL}/jobs`,{
+                method: 'GET',
+                headers: {
+                    'Authorization' : `Bearer ${token}`,
+                },
+            });
+            if (response.status!=200){
+                // fill the table to be empty, telling unable to retrieve jobs
+                table.innerHTML = `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
+                return;
+            }
+            const data = await response.json();
+            const jobs = data.rows;
+            jobs.forEach((job,index) => {
+                const row = document.createElement('div');
+                row.id = job.id;
+                row.className = 'job_element';
+                row.innerHTML = `
+                    <div class='job_no'> ${index+1} </div>
+                    <div class='job_title'> ${job.name} </div>
+                    <div class='job_language'> ${job.lang} </div>
+                    <div class='job_status_${job.status.toLowerCase()}'> ${job.status} </div>
+                    <div class='job_kill'> <button onclick="killJob('${job.id}')" class='kill'>kill</button> </div>
+                    <div class='job_delete'> <button onclick="deleteJob('${job.id}')" class='delete'>delete</button> </div>
+                `;
+                table.appendChild(row);
+            });
+            startDashboardPolling();
+        }catch(err){
+            console.error(err);
+            table.innerHTML = `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
+        }
+    }
+    
+
+</script>

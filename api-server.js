@@ -4,8 +4,8 @@ const {createClient, RedisSentinel} = require("redis");
 const {uploadMiddleWare} = require("./post_file.js");
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const {SignJWT} = require('jose');
-const {verifyToken, getJobs, getJobData, deleteJob, insertJob, updateJob, insertUser,getUserData} = require('./server_helpers.js');
+const {SignJWT,jwtVerify} = require('jose');
+const {getJobs, getJobData, deleteJob, insertJob, updateJob, insertUser,getUserData} = require('./server_helpers.js');
 
 const app = express();
 
@@ -17,6 +17,19 @@ const redisClient = createClient({
 		url : 'redis://127.0.0.1:6379'});
 
 redisClient.on('error',(err)=>console.error('Redis Error : ',err));
+
+async function verifyToken(token){
+	if (!token){
+		return null;
+	}
+	try{
+		const {payload} = await jwtVerify(token,new TextEncoder().encode(process.env.JWT_SECRET));
+		return payload;
+	}catch(err){
+		console.error("JWT Verification Failed:", err.message);
+		return null;
+	}
+}
 
 async function verifyHeader(req,res,next){
 	// verify jwt
@@ -33,7 +46,7 @@ async function verifyHeader(req,res,next){
 async function cancelJob(req,res,isDelete=false){
 	const jobId = req.params.jobId;
 	try{
-		const statusCheck = await getJobData(jobId,'status');
+		const statusCheck = await getJobData(jobId,['status']);
 		if (!statusCheck){
 			return res.status(404).json({error : 'Job not found'});
 		}
@@ -136,7 +149,7 @@ app.post('/login',async (req,res)=>{
 		// Login successful, generate JWT token
 		const token = await new SignJWT({userId : user.id})
 		.setProtectedHeader({alg : 'HS256'})
-		.setExpirationTime('2h')
+		.setExpirationTime('4h')
 		.sign(new TextEncoder().encode(process.env.JWT_SECRET));
 		return res.status(200).json({message : 'Login successful', token : token});
 	}catch(err){
@@ -145,26 +158,28 @@ app.post('/login',async (req,res)=>{
 	}
 });
 
-app.post('/submit',uploadMiddleWare,async (req,res)=>{
+app.post('/submit',uploadMiddleWare, verifyHeader, async (req,res)=>{
 	const jobId = uuidv4();
 	const lang = req.body.lang;
 	const mode = req.body.mode;
 	const timeout = req.body.timeout;
+	const userId = req.user.userId;
 	try{
 		if (!req.file){
 			return res.status(400).json({error:'No file submitted'})
 		}
 		const job = {
+			userId : userId,
 			id : jobId,
 			status : 'QUEUED',
-			mode : mode, // mode = 0 if single file, 1 if Makefile
+			mode : Number(mode), // mode = 0 if single file, 1 if Makefile
 			lang : lang,
-			zipPath : req.file.path,
+			zippath : req.file.path,
 			created : new Date().toISOString(),
 			timeout : timeout
 		};
 		const response = await insertJob(job);
-		if (!response.ok){
+		if (!response){
 			return res.status(500).json({error : 'Cannot insert job'});
 		}
 
@@ -184,14 +199,20 @@ app.post('/submit',uploadMiddleWare,async (req,res)=>{
 app.get('/status/:id', verifyHeader, async (req,res)=>{
 	const jobId = req.params.id;
 	try{
-		const response = await getJobData(jobId,'*');
+		const response = await getJobData(jobId,['status']);
 		if (!response){
 			return res.status(404).json({error : 'Job not found'});
 		}
 		return res.status(200).json(response);
 	}catch(err){
+		console.error(err);
 		return res.status(500).json({error : 'Cannot retrieve status'});
 	}
+});
+
+app.get('/verify', verifyHeader, (req, res) => {
+    // If it passes verifyHeader, the token is valid!
+    res.status(200).json({ valid: true });
 });
 
 // Boot up the server and connect to Redis

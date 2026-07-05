@@ -9,9 +9,9 @@ const { json } = require('stream/consumers');
 
 const execPromise = util.promisify(exec);
 
-const fileMap = {"Python" : "main.py",
-				 "C" : "main.c",
-				 "C++" : "main.cpp"
+const fileMap = {"python" : "main.py",
+				 "c" : "main.c",
+				 "c++" : "main.cpp"
 				};
 
 async function findMain(dirpath, lang){
@@ -48,11 +48,11 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 	try{
 		const filename = await findMain(dirname, lang);
 		if (Number(mode) === 0){
-				if (lang === "Python"){
+				if (lang === "python"){
 					image = "python:3.10-slim";
 					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
-				else if (lang === "C" || lang === "C++"){
+				else if (lang === "c" || lang === "c++"){
 					const compiler = lang === "C" ? "gcc" : "g++";
 					image = "gcc:latest";
 					runCmd = `timeout ${timeout}s bash -c "${compiler} -Wall ${filename} -o a.out && ./a.out"`;
@@ -60,11 +60,11 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 					throw new Error(`Execution for language ${lang} is not configured.`);
 				}
 		}else if (Number(mode) === 1){
-				if (lang === "Python"){
+				if (lang === "python"){
 					image = "python:3.10-slim";
 					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
-				else if (lang === "C" || lang === "C++"){
+				else if (lang === "c" || lang === "c++"){
 					image = "gcc:latest";
 					runCmd = `timeout ${timeout}s bash -c "make && ./a.out"`;
 				}else{

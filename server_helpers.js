@@ -1,7 +1,6 @@
 require('dotenv').config()
-const {jwtVerify} = require('jose');
 const {Pool} = require('pg');
-const {ERROR_SOURCE} = require('./constants.js');
+const {ERROR_SOURCE, JOB_STATUS} = require('./constants.js');
 
 const dbPool = new Pool({
     host : 'localhost',
@@ -15,24 +14,12 @@ const dbPool = new Pool({
 
 dbPool.connect((err,client,release)=>{
     if (err){
-        console.error('Error connecting to database');
+        console.error(`Error connecting to database`);
     }else{
         console.log('Successfully connected to database');
     }
     if (client) release();
 });
-
-async function verifyToken(token){
-    if (!token){
-		return false;
-	}
-	try{
-		const {payload} = await jose.jwtVerify(token,new TextEncoder().encode(process.env.JWT_SECRET));
-		return true;
-	}catch(err){
-		return false;
-	}
-}
 
 async function getJobs(userId){
     try{
@@ -41,6 +28,7 @@ async function getJobs(userId){
         return result.rows;
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
@@ -54,7 +42,7 @@ async function insertJob(job){
             job.userId,
             job.lang,
             job.mode,
-            job.zipPath,
+            job.zippath,
             job.created,
             job.timeout,
             job.status,
@@ -63,12 +51,13 @@ async function insertJob(job){
         return result.rowCount === 1;
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
 
-async function getJobData(jobId, attr='status'){
-    const allowed_attr = [
+async function getJobData(jobId, attrs){
+    const allowed_attrs = [
                             'id',
                             'user_id',
                             'lang',
@@ -79,16 +68,24 @@ async function getJobData(jobId, attr='status'){
                             'status', 
                             'stdout', 
                             'stderr', 
+                            'zippath',
                         ];
     try{
-        if (!allowed_attr.includes(attr)){
-            throw new Error(`Invalid attribute requested`);
+        if (!Array.isArray(attrs) || attrs.length==0){
+            throw new Error(`Attributes should be non-empty arrays`);
         }
-        const query = `select ${attr} from jobs where id = $1`;
+        for (const attr of attrs){
+            if (!allowed_attrs.includes(attr)){
+                throw new Error(`Attempt to access undefined attribute "${attr}"`)
+            }
+        }
+        const clause = attrs.map((attr,idx)=>`${attr}`).join(',');
+        const query = `select ${clause} from jobs where id = $1`;
         const result = await dbPool.query(query,[jobId]);
         return result.rows[0];
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
@@ -101,6 +98,7 @@ async function deleteJob(jobId){
         return result.rowCount === 1;
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
@@ -127,13 +125,14 @@ async function updateJob(jobId, attrs, values){
         return result.rowCount===1;
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
     
 async function insertUser(user){
     try{
-        const query = `insert into user (username, password, email, created) 
+        const query = `insert into users (username, password, email, created) 
                        values ($1,$2,$3,$4)`;
         const result = await dbPool.query(query,[
             user.username,
@@ -145,6 +144,7 @@ async function insertUser(user){
         return result.rowCount === 1;
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
@@ -156,8 +156,9 @@ async function getUserData(username, email){
         return result.rows[0];
     }catch(err){
         err.source = ERROR_SOURCE.DATABASE;
+        err.status = 'SYSTEM_ERROR';
         throw err;
     }
 }
 
-module.exports = {verifyToken, getJobs, insertJob, getJobData, deleteJob, updateJob, insertUser,getUserData};
+module.exports = {getJobs, insertJob, getJobData, deleteJob, updateJob, insertUser,getUserData};

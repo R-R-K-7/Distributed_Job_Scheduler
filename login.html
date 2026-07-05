@@ -10,29 +10,35 @@
 <body>
 <div class="card">
 	<h2>Login</h2>
-	<input type="text" id="username" placeholder="Username"/>
+	<input type="text" id="userData" placeholder="Username or Email-ID"/>
 	<input type="password" id="password" placeholder="Password"/>
 	<button id="loginBtn" onclick="login()">Login</button>
+    <button id="signUpBtn" onclick="toSignUp()"> Sign Up</button>
 </div>
 <script>
+    function toSignUp(){
+        window.location.href = 'signup.html';
+        return;
+    }
 	const API_URL = 'http://localhost:3000';
     function login(){
-        const username = document.getElementById('username').value;
+        const userData = document.getElementById('userData').value;
         const password = document.getElementById('password').value;
 
         fetch(`${API_URL}/login`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({ username : userData, email : userData, password : password })
         })
         .then(response => response.json())
         .then(data => {
             if(data.token){
                 localStorage.setItem('token', data.token);
+                console.log(localStorage.getItem('token'));
                 alert('Login successful!');
-                window.location.href = 'index.html';
+                window.location.href = 'homepage.html';
             } else {
                 alert('Login failed: ' + data.error);
             }

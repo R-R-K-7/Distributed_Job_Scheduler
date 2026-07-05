@@ -6,7 +6,8 @@ const JOB_STATUS = Object.freeze({
     COMPLETED: 'COMPLETED',
     FAILED: 'FAILED',
     TERMINATED: 'TERMINATED',
-    KILLED: 'KILLED'
+    KILLED: 'KILLED',
+    SYSTEM_ERROR : 'Internal Error',
 });
 
 const ERROR_SOURCE = Object.freeze({
