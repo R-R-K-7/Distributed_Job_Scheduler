@@ -6,6 +6,7 @@ const fs = require('fs/promises');
 const {exec, spawn, fork} = require('child_process');
 const { error } = require('console');
 const { json } = require('stream/consumers');
+const { ERROR_SOURCE } = require('./constants');
 
 const execPromise = util.promisify(exec);
 
@@ -14,27 +15,48 @@ const fileMap = {"python" : "main.py",
 				 "c++" : "main.cpp"
 				};
 
-async function findMain(dirpath, lang){
-	const items = await fs.readdir(dirpath,{withFileTypes : true});
-	if (!fileMap[lang]){
-		throw new Error(`Execution for language ${lang} is not configured.`);
-	}
-	for (const item of items){
-		if (item.isFile() && item.name === fileMap[lang]){
-			return path.relative(dirpath, path.join(dirpath,item.name));
-		}
-		if (item.isDirectory()){
-			try{
-				const res = await findMain(path.join(dirpath,item.name), lang);
-				if (res){
-					return path.join(item.name, res);
-				}
-			}catch(err){
-				// ignore error and continue searching
-			}
-		}
-	}
-	throw new Error(`${fileMap[lang]} for language ${lang} not found.`);
+async function bfsSearch(rootPath, matchFn) {
+    const queue = [rootPath];
+
+    while (queue.length > 0) {
+        const currentDir = queue.shift();
+        
+        try {
+            const items = await fs.readdir(currentDir, { withFileTypes: true });
+
+            for (const item of items) {
+                if (item.isFile() && matchFn(item.name)) {
+                    // Return path relative to the root search path
+                    return path.relative(rootPath, path.join(currentDir, item.name));
+                }
+            }
+
+            for (const item of items) {
+                if (item.isDirectory()) {
+                    queue.push(path.join(currentDir, item.name));
+                }
+            }
+        } catch (err) {
+            // Permission denied or other error; skip this directory
+            continue;
+        }
+    }
+    return null;
+}
+
+async function findMakeFileDir(dirPath) {
+    const result = await bfsSearch(dirPath, (name) => ['Makefile', 'makefile'].includes(name));
+    if (!result) throw new Error('No Makefile found');
+    return path.dirname(result);
+}
+
+async function findMain(dirPath, lang) {
+    if (!fileMap[lang]) {
+        throw new Error(`Execution for language ${lang} is not configured.`);
+    }
+    const result = await bfsSearch(dirPath, (name) => name === fileMap[lang]);
+    if (!result) throw new Error(`${fileMap[lang]} for ${lang} not found.`);
+    return result;
 }
 
 // spawns a process and returns the process object
@@ -48,25 +70,28 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 	try{
 		const filename = await findMain(dirname, lang);
 		if (Number(mode) === 0){
+				// without makefile
 				if (lang === "python"){
 					image = "python:3.10-slim";
 					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
 				else if (lang === "c" || lang === "c++"){
-					const compiler = lang === "C" ? "gcc" : "g++";
+					const compiler = lang === "c" ? "gcc" : "g++";
 					image = "gcc:latest";
 					runCmd = `timeout ${timeout}s bash -c "${compiler} -Wall ${filename} -o a.out && ./a.out"`;
 				}else{
 					throw new Error(`Execution for language ${lang} is not configured.`);
 				}
 		}else if (Number(mode) === 1){
+				// with makefile
+				const makefilePath = await findMakeFileDir(dirname);
 				if (lang === "python"){
 					image = "python:3.10-slim";
 					runCmd = `timeout ${timeout}s bash -c "python3 ${filename}"`;
 				}
 				else if (lang === "c" || lang === "c++"){
 					image = "gcc:latest";
-					runCmd = `timeout ${timeout}s bash -c "make && ./a.out"`;
+					runCmd = `timeout ${timeout}s bash -c "cd ${makefilePath} && make && ./a.out"`;
 				}else{
 					throw new Error(`Execution for language ${lang} is not configured.`);
 				}
@@ -78,6 +103,7 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 		return {stdout, stderr};
 	}catch(err){
 		console.error(err.message);
+		err.source = ERROR_SOURCE.EXECUTION;
 		// Time limit exceeded
 		if (err.code === 124) {
 			err.status = 'TERMINATED';
@@ -103,10 +129,11 @@ async function execCode(dirname, lang, mode, timeout, jobId){
 }
 
 async function killContainer(jobId){
-	const name = `${jobId}`;
-	await execPromise(`docker kill ${name}`,(error,stdout,stdrr)=>{
-		return json({error:error});
-	});
+	try{
+		await execPromise(`docker kill ${jobId}`); 
+		console.log(`Successfully killed container: ${jobId}`);
+	}catch(err){
+		console.log(`Container ${jobId} not found or already dead.`);
+	}
 }
-
 module.exports = {execCode, killContainer};

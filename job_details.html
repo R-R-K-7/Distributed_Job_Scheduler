@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="eng">
+    <head>
+        <meta charset="UTF-8">
+        <title>Job Details</title>
+        <style>
+            body {
+                font-family: system-ui, -apple-system, sans-serif;
+                background-color: rgb(181, 215, 245);
+                color: #333;
+                padding: 2rem;
+            }
+            .details_card {
+                max-width: 900px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                padding: 2rem;
+                border-radius: 8px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            }
+            
+            /* Layout grids for info sections */
+            .jobinfo, .timeinfo {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                background-color: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                margin-top: 15px;
+                border: 1px solid #e1e4e8;
+            }
+            .jobinfo > div, .timeinfo > div {
+                flex: 1 1 200px;
+            }
+
+            /* Description Textarea */
+            .jobdesc { 
+                margin-top: 15px; 
+                background-color: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                border: 1px solid #e1e4e8;
+                min-height: 50px; /* Ensures it has space even if empty */
+            }
+            /* Terminal boxes */
+            .terminal {
+                background-color: #151515;
+                color: #00f500;
+                padding: 1rem;
+                border-radius: 4px;
+                font-family: 'Courier New', Courier, monospace;
+                white-space: pre-wrap;
+                min-height: 150px;
+                max-height: 400px;
+                overflow-y: auto;
+                margin-bottom: 15px;
+            }
+            #jobStderr { color: #ff4242; }
+
+            /* Buttons */
+            button {
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+                transition: opacity 0.2s;
+            }
+            button:hover { opacity: 0.8; }
+            .back_btn { background-color: #6c757d; color: white; padding: 8px 16px; margin-bottom: 10px;}
+            .kill { background-color: #f69b2c; color: #000; }
+            .delete { background-color: #ff4242; color: #000; }
+
+            /* Status Badge */
+            .status_badge {
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 0.85em;
+                font-weight: bold;
+            }
+            .job_status_completed { background-color: #d4edda; color: #155724; }
+            .job_status_failed, 
+            .job_status_system_error,
+            .job_status_terminated, 
+            .job_status_killed { 
+                background-color: #f8d7da; 
+                color: #721c24; 
+            }
+            .job_status_queued, 
+            .job_status_running {
+                background-color: #fff3cd; 
+                color: #856404; 
+            }
+        </style>
+    </head>
+    <body>
+        <div class="details_card">
+            <!-- back button to dashboard
+                 job Name --- job Id -- Language --- with/without Makefile
+                 time of submission --- time passed --- timeout --- completion
+                 job description (scrollable)
+                 job status --- kill | delete
+                 stdout 
+                 stderr-->
+            <h3 id="username">...</h3>
+            <h3 id="email">...</h3>
+            <button type="button" class="back_btn" onclick="window.location.href='homepage.html'">Back to Dashboard</button>
+            <div class="jobinfo">
+                <div><strong>Job Name:</strong> <span id="jobNameDisplay">...</span></div>
+                <div><strong>Job ID:</strong> <span id="jobIdDisplay">...</span></div>
+            </div>
+            <div class="jobinfo">
+                <div><strong>Language:</strong> <span id="jobLang">...</span></div>
+                <div><strong>Status:</strong> <span id="jobStatus" class="status_badge">...</span></div>
+                <div>
+                    <span><button type="button" id="killBtn">kill</button></span>
+                    <span><button type="button" id="deleteBtn">delete</button></span>
+                </div>
+            </div>
+            <div class="timeinfo">
+                <div><strong>Time of Submission: </strong><span id="job_submission_time">...</span></div>
+                <div><strong>Time Elapsed:</strong><span id="job_elapsed_time">...</span></div>
+                <div><strong>Timeout(s):</strong><span id="job_timeout">...</span></div>
+                <div><strong>Time of completion:</strong><span id="job_completion_time">...</span></div>
+            </div>
+            <div class="jobdesc">
+                <span><strong>Job Description: </strong></span><span id="jobdesc">Loading...</span>
+            </div>
+            <h3>stdout:</h3>
+            <div id="jobStdout" class="terminal">Loading...</div>
+            <h3>stderr:</h3>
+            <div id="jobStderr" class="terminal">Loading...</div>
+        </div>
+        <script>
+            const API_URL = 'http://localhost:3000';
+            async function checkAuth(){
+                const token = localStorage.getItem('token');
+                if(!token){
+                    alert('You are not logged in. Redirecting to login page.');
+                    window.location.href = 'login.html';
+                    return;
+                }
+                try{
+                    const verifyResponse = await fetch(`${API_URL}/verify`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (!verifyResponse.ok) {
+                        alert('Invalid access. Please log in again.');
+                        //localStorage.removeItem('token');
+                        window.location.href = 'login.html';
+                        return;
+                    }
+                }catch(err){
+                    console.error(err);
+                    alert(`Unable to load page. Try again later`);
+                    window.location.href = 'login.html';
+                }
+            }
+            
+            checkAuth();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const jobId = urlParams.get('id');
+            let pollInterval = null;
+
+            async function showUserData(){
+                const token = localStorage.getItem('token');
+                const usernameEl = document.getElementById('username');
+                const emailEl = document.getElementById('email');
+                try{
+                    const response = await fetch(`${API_URL}/users/me`,{
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`, 
+                        },
+                    });
+                    if (!response.ok){
+                        throw new Error('Failed to fetch usser data')
+                    }
+                    const user = await response.json();
+                    usernameEl.innerText = user.username;
+                    emailEl.innerText = user.email;
+                }catch(err){
+                    usernameEl.innerText = 'USERNAME';
+                    emailEl.innerText = 'EMAIL';
+                }
+            }
+
+            async function getJobDetails(jobId){
+                if (!jobId){
+                    alert('Invalid Job Id');
+                    window.history.back();
+                    return;
+                }
+                const token = localStorage.getItem('token');
+                try{
+                    const response = await fetch(`${API_URL}/jobs/${jobId}`,{
+                        headers: {'Authorization': `Bearer ${token}`,
+                    }});
+                    if (response.status===401){
+                        alert('Session expired. Please log in again');
+                        window.location.href = 'login.html';
+                        return;
+                    }
+                    if (!response.ok){
+                        throw new Error('Job not found');
+                    }
+                    // job has been retrieved
+                    const job = await response.json();
+                    // fill html elements
+                    document.getElementById('jobNameDisplay').innerText = job.name || '-';
+                    document.getElementById('jobIdDisplay').innerText = job.id;
+                    document.getElementById('jobLang').innerText = job.lang;
+                    document.getElementById('jobdesc').innerText = job.description || 'No description provided.';
+                    if (document.getElementById('jobStdout').innerText !== job.stdout) {
+                        document.getElementById('jobStdout').innerText = job.stdout || '';
+                    }
+                    if (document.getElementById('jobStderr').innerText !== job.stderr) {
+                        document.getElementById('jobStderr').innerText = job.stderr || '';
+                    }
+                    document.getElementById('job_timeout').innerText = `${Math.ceil(job.timeout/1000)} seconds`;
+                    
+                    // time formatting
+                    const createdDate = new Date(job.created);
+                    document.getElementById('job_submission_time').innerText = createdDate.toLocaleString();
+                    
+                    let elapsed_s = 0;
+                    if (job.completed){
+                        const completedDate = new Date(job.completed);
+                        // subtract completed and created
+                        document.getElementById('job_completion_time').innerText = completedDate.toLocaleString();
+                        elapsed_s = Math.floor((completedDate - createdDate) / 1000);
+                    }else{
+                        // subtract current time and created
+                        document.getElementById('job_completion_time').innerText = '—';
+                        elapsed_s = Math.floor((Date.now() - createdDate) / 1000);
+                    }
+                    document.getElementById('job_elapsed_time').innerText = `${elapsed_s}s`;
+                    
+                    // status badge
+                    const status = document.getElementById('jobStatus');
+                    status.classList.remove(
+                        'job_status_queued', 
+                        'job_status_running', 
+                        'job_status_completed', 
+                        'job_status_failed', 
+                        'job_status_system_error', 
+                        'job_status_terminated', 
+                        'job_status_killed'
+                    );
+                    status.classList.add(`job_status_${job.status.toLowerCase()}`);
+                    status.innerText = job.status;
+
+                    if (['QUEUED','RUNNING','CANCELLING'].includes(job.status)){
+                        if (!pollInterval){
+                            pollInterval = setInterval(()=>getJobDetails(jobId),3000);
+                        }
+                    }else{
+                        if (pollInterval){
+                            clearInterval(pollInterval);
+                            pollInterval = null;
+                        }
+                    }
+                }catch(err){
+                    console.error(err);
+                    if (pollInterval) clearInterval(pollInterval);
+                    document.getElementById('jobNameDisplay').innerText = 'Error loading Job';
+                    document.getElementById('jobIdDisplay').innerText = '-';
+                    document.getElementById('jobLang').innerText = '-';
+                    document.getElementById('jobdesc').innerText = '-';
+                    document.getElementById('jobStdout').innerText = '';
+                    document.getElementById('jobStderr').innerText = '';
+                    document.getElementById('job_timeout').innerText = `-`;
+                    document.getElementById('job_submission_time').innerText = '-';
+                    document.getElementById('job_elapsed_time').innerText = '-';
+                    document.getElementById('job_completion_time').innerText = '—';
+                    document.getElementById('jobStatus').innerText = '-';
+                }
+            }
+
+            async function killCurrentJob(jobId){
+                const token = localStorage.getItem('token');
+                try{
+                    const response = await fetch(`${API_URL}/jobs/${jobId}/kill`,{
+                        method: 'POST',
+                        headers:{
+                            'Authorization': `Bearer ${token}`,
+                        }
+                    });
+                    if (response.status == 401){
+                        alert('Session expired. Please log in again');
+                        window.location.href = 'login.html';
+                        return;
+                    }
+                    getJobDetails(jobId);
+                }catch(err){
+                    alert('Failed to kill job');
+                }
+            }
+
+            async function deleteCurrentJob(jobId){
+                const token = localStorage.getItem('token');
+                try{
+                    const response = await fetch(`${API_URL}/jobs/${jobId}/delete`,{
+                        method: 'DELETE',
+                        headers:{
+                            'Authorization': `Bearer ${token}`,
+                        }
+                    });
+                    if (response.ok){
+                        window.location.href = 'homepage.html';
+                    }else if (response.status == 401){
+                        alert('Session expired. Please log in again');
+                        window.location.href = 'login.html';
+                    }else{
+                        alert('Failed to delete job');
+                    }
+                }catch(err){
+                    alert('Failed to delete job');
+                }
+            }
+
+            document.getElementById('killBtn').addEventListener('click', () => killCurrentJob(jobId));
+            document.getElementById('deleteBtn').addEventListener('click', () => deleteCurrentJob(jobId));
+            showUserData();
+            getJobDetails(jobId);
+
+        </script>
+    </body>
+</html>

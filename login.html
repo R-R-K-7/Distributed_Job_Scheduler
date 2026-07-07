@@ -4,18 +4,128 @@
 	<meta charset="UTF-8">
 	<title>Distributed Job Scheduler</title>
 	<style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: rgb(181, 215, 245);
+            color: #333;
+            margin: 0;
+            /* Flexbox to perfectly center the card on the screen */
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background-color: white;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form_group {
+            margin-bottom: 1rem;
+        }
+
+        input[type="text"], 
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.95rem;
+            background-color: #f8fafc;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #3182ce;
+            background-color: #fff;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        #loginBtn {
+            background-color: #03364a;
+            color: white;
+            margin-top: 1rem;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 4px rgba(3, 54, 74, 0.2);
+        }
+
+        #loginBtn:hover {
+            background-color: #044b67;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(3, 54, 74, 0.3);
+        }
+
+        #loginBtn:active {
+            transform: translateY(0);
+        }
+
+        #signUpBtn {
+            background-color: transparent;
+            color: #03364a;
+            border: 2px solid #cbd5e0;
+        }
+
+        #signUpBtn:hover {
+            border-color: #03364a;
+            background-color: #f1f5f9;
+        }
+    </style>
 		
-	</style>
 </head>
 <body>
 <div class="card">
 	<h2>Login</h2>
-	<input type="text" id="userData" placeholder="Username or Email-ID"/>
-	<input type="password" id="password" placeholder="Password"/>
-	<button id="loginBtn" onclick="login()">Login</button>
-    <button id="signUpBtn" onclick="toSignUp()"> Sign Up</button>
+    <div class="form_group">
+        <input type="text" id="userData" placeholder="Username or Email"/>
+    </div>
+    
+    <div class="form_group">
+        <input type="password" id="password" placeholder="Password"/>
+    </div>
+    
+    <button id="loginBtn" onclick="login()">Login</button>
+    <button id="signUpBtn" onclick="toSignUp()">Create an Account</button>
 </div>
 <script>
+    document.getElementById('password').addEventListener('keypress',function(e){
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('userData').addEventListener('keypress',function(e){
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('loginBtn').addEventListener('keypress',function(e){
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('signUpBtn').addEventListener('keypress',function(e){
+        if (e.key === 'Enter') toSignUp();
+    });
+
     function toSignUp(){
         window.location.href = 'signup.html';
         return;
@@ -25,6 +135,12 @@
         const userData = document.getElementById('userData').value;
         const password = document.getElementById('password').value;
 
+        // Basic validation before hitting the server
+        if (!userData || !password) {
+            alert('Please enter both your username/email and password.');
+            return;
+        }
+
         fetch(`${API_URL}/login`, {
             method: 'POST',
             headers: {
@@ -32,20 +148,29 @@
             },
             body: JSON.stringify({ username : userData, email : userData, password : password })
         })
-        .then(response => response.json())
-        .then(data => {
-            if(data.token){
+        .then(async response => {
+            const data = await response.json();
+            if (response.ok && data.token){
                 localStorage.setItem('token', data.token);
-                console.log(localStorage.getItem('token'));
-                alert('Login successful!');
                 window.location.href = 'homepage.html';
-            } else {
-                alert('Login failed: ' + data.error);
+            }else{
+                alert('Login failed: ' + (data.error || 'Invalid Credentials'));
+                setTimeout(() => {
+                    const passwordField = document.getElementById('password');
+                    passwordField.value = ''; 
+                    passwordField.focus();
+                }, 100);
             }
         })
         .catch(error => {
             console.error('Error:', error);
             alert('An error occurred during login.');
+            setTimeout(() => {
+                const passwordField = document.getElementById('password');
+                passwordField.value = ''; 
+                passwordField.focus();
+            }, 100);
+
         });
     }
 </script>

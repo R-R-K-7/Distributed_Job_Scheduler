@@ -3,7 +3,7 @@ const path = require('path');
 	
 const {extractFile} = require('./genFile.js');
 const {execCode, killContainer} = require('./run_code.js');
-const {getJobData, updateJob, deleteJob} = require('./server_helpers.js');
+const {getJobDataWorker_S, updateJobWorker_S, deleteJobWorker_S} = require('./server_helpers.js');
 const { resolve } = require('dns');
 const {ERROR_SOURCE} = require('./constants.js');
 
@@ -16,8 +16,6 @@ const redisClient = createClient({
 
 redisClient.on('error',(err)=>{console.error('Redis Error : ',err)});
 const subscriberClient = redisClient.duplicate();
-
-
 
 async function startworker(){
 	while (true){
@@ -33,9 +31,9 @@ async function startworker(){
 			if (isKilled || isDeleted){
 				// job has been cancelled
 				if (isDeleted){
-					await deleteJob(jobId);
+					await deleteJobWorker_S(jobId);
 				}else{
-					await updateJob(jobId,['status','completed'],['KILLED',new Date().toISOString()]);
+					await updateJobWorker_S(jobId,['status','completed'],['KILLED',new Date().toISOString()]);
 				}
 				continue;
 			}
@@ -43,7 +41,7 @@ async function startworker(){
 			console.log(`Got job ${jobId}`);
 			
 			// fetch jobData
-			const jobData = await getJobData(jobId,['status','zippath','lang','mode','timeout']);
+			const jobData = await getJobDataWorker_S(jobId,['status','zippath','lang','mode','timeout']);
 			
 			if (!jobData){
 				// skip the unavailable job
@@ -58,25 +56,24 @@ async function startworker(){
 			activeJobs.add(jobId);
 
 			// update jobData in database
-			await updateJob(jobId, 
+			await updateJobWorker_S(jobId, 
 				['status'],
 				['RUNNING']
 			);
 
 			// execCode
-			const {stdout, stderr} = await execCode(dirPath, jobData.lang, jobData.mode,jobData.timeout, jobId);
+			const timeout_s = Math.ceil(jobData.timeout / 1000);
+			const {stdout, stderr} = await execCode(dirPath, jobData.lang, jobData.mode,timeout_s, jobId);
 			
 			// update jobData in database
-			await updateJob(jobId, 
-				['completed','stderr','stdout','status'],
+			await updateJobWorker_S(jobId, 
+				['completed','stdout','stderr','status'],
 				[new Date().toISOString(), stdout, stderr || '', 'COMPLETED']
 			);
 			console.log(`Job ${jobId} completed successfully`)
 		}catch(err){
 			// if jobId is null, redisClient connection issue, restart
 			if (!jobId){
-				console.error("Redis blMove Error:", err.message); 
-                
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 continue;
 			}
@@ -89,10 +86,10 @@ async function startworker(){
 				// update database upon job Exit
 				if (isDeleted){
 					// job has been cancelled
-					await deleteJob(jobId);
+					await deleteJobWorker_S(jobId);
 				}else{
 					// update for either killed-job or failed-job
-					await updateJob(jobId, 
+					await updateJobWorker_S(jobId, 
 						['completed','stderr','stdout','status'],
 						[new Date().toISOString(), `[${err.source}] : ${err.message}`, '', err.status]);
 					}
@@ -113,7 +110,7 @@ async function startworker(){
 async function bootWorker(){
 	try{
 		await redisClient.connect();
-		subscriberClient.connect();
+		await subscriberClient.connect();
 		// upon a kill signal, deletes the corresponding job's container, in redis queue, updates database
 		await subscriberClient.subscribe('kill_channel', async (jobId)=>{
 			// if this worker is running the job, kil the container

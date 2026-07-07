@@ -5,7 +5,7 @@ const {uploadMiddleWare} = require("./post_file.js");
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const {SignJWT,jwtVerify} = require('jose');
-const {getJobs, getJobData, deleteJob, insertJob, updateJob, insertUser,getUserData} = require('./server_helpers.js');
+const {getJobs, getJobData, deleteJob, insertJob, updateJob, insertUser,getUserData_S,getUserDataById} = require('./server_helpers.js');
 
 const app = express();
 
@@ -45,8 +45,9 @@ async function verifyHeader(req,res,next){
 
 async function cancelJob(req,res,isDelete=false){
 	const jobId = req.params.jobId;
+	const userId = req.user.userId;
 	try{
-		const statusCheck = await getJobData(jobId,['status']);
+		const statusCheck = await getJobData(jobId,userId,['status']);
 		if (!statusCheck){
 			return res.status(404).json({error : 'Job not found'});
 		}
@@ -56,7 +57,7 @@ async function cancelJob(req,res,isDelete=false){
 				return res.status(400).json({error : `Job already ${status}`});
 			}else{
 				// if already completed, remove from database
-				const ret = await deleteJob(jobId);
+				const ret = await deleteJob(jobId,userId);
 				if (!ret){
 					// internal server error, cannot delete
 					return res.status(500).json({message : `Failed to delete job : ${jobId}`});
@@ -67,7 +68,7 @@ async function cancelJob(req,res,isDelete=false){
 		// If function reaches here, it is queued, or running
 		// cancel the job in redis queue
 		const cancelType = (isDelete) ? `deleting:${jobId}` : `killing:${jobId}`;
-		await redisClient.set(cancelType,'true',{EX:3600});
+		await redisClient.set(cancelType,'true');
 		const removed = await redisClient.lRem('job_queue',0,jobId);
 		if (removed>0){
 			if (isDelete){
@@ -80,7 +81,7 @@ async function cancelJob(req,res,isDelete=false){
 		}
 		// Job is RUNNING
 		// Update status to CANCELLING for UI to update
-		await updateJob(jobId,['status'],['CANCELLING']);
+		await updateJob(jobId,userId,['status'],['CANCELLING']);
 		// broadcast kill signal to kill the job in corresponding worker node
 		await redisClient.publish('kill_channel',jobId);
 		return res.status(200).json({message : `Kill signal dispatched to all worker nodes successfully`});
@@ -111,6 +112,34 @@ app.get('/jobs', verifyHeader, async (req,res)=>{
 	}
 });
 
+app.get('/jobs/:id', verifyHeader, async (req,res)=>{
+	const jobId = req.params.id;
+	const userId = req.user.userId;
+	try{
+		const response = await getJobData(jobId,userId,[
+                            'id',
+                            'user_id',
+                            'lang',
+                            'mode',
+                            'created',
+                            'timeout',
+                            'completed',
+                            'status', 
+                            'stdout', 
+                            'stderr', 
+                            'name',
+							'description',
+                        ]);
+		if (!response){
+			return res.status(404).json({error : 'Job not found'});
+		}
+		return res.status(200).json(response);
+	}catch(err){
+		console.error(err);
+		return res.status(500).json({error : 'Cannot retrieve status'});
+	}
+});
+
 app.post('/signup',async (req,res)=>{
 	const {username,email,password} = req.body;
 	if (!email || !password || !username){
@@ -138,7 +167,7 @@ app.post('/login',async (req,res)=>{
 		return res.status(400).json({error : 'Email / username and password are required'});
 	}
 	try{
-		const user = await getUserData(username,email);
+		const user = await getUserData_S(username,email);
 		if (!user){
 			return res.status(401).json({error : 'Invalid credentials'});
 		}
@@ -164,6 +193,8 @@ app.post('/submit',uploadMiddleWare, verifyHeader, async (req,res)=>{
 	const mode = req.body.mode;
 	const timeout = req.body.timeout;
 	const userId = req.user.userId;
+	const jobName = req.body.name;
+	const jobdesc = req.body.description;
 	try{
 		if (!req.file){
 			return res.status(400).json({error:'No file submitted'})
@@ -176,7 +207,9 @@ app.post('/submit',uploadMiddleWare, verifyHeader, async (req,res)=>{
 			lang : lang,
 			zippath : req.file.path,
 			created : new Date().toISOString(),
-			timeout : timeout
+			timeout : timeout,
+			name : jobName,
+			description : jobdesc,
 		};
 		const response = await insertJob(job);
 		if (!response){
@@ -198,8 +231,9 @@ app.post('/submit',uploadMiddleWare, verifyHeader, async (req,res)=>{
 
 app.get('/status/:id', verifyHeader, async (req,res)=>{
 	const jobId = req.params.id;
+	const userId = req.user.userId;
 	try{
-		const response = await getJobData(jobId,['status']);
+		const response = await getJobData(jobId,userId,['status']);
 		if (!response){
 			return res.status(404).json({error : 'Job not found'});
 		}
@@ -213,6 +247,20 @@ app.get('/status/:id', verifyHeader, async (req,res)=>{
 app.get('/verify', verifyHeader, (req, res) => {
     // If it passes verifyHeader, the token is valid!
     res.status(200).json({ valid: true });
+});
+
+app.get('/users/me', verifyHeader, async (req,res)=>{
+	const userId = req.user.userId;
+	try{
+		const user = await getUserDataById(userId);
+		if (!user){
+			return res.status(404).json({message: 'User not found'});
+		}
+		return res.status(200).json({username: user.username, email: user.email})
+	}catch(err){
+		console.error(err);
+		return res.status(500).json({message: ''});
+	}
 });
 
 // Boot up the server and connect to Redis

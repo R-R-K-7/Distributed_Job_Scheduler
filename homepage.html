@@ -1,137 +1,346 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="eng">
 <head>
 	<meta charset="UTF-8">
 	<title>Distributed Job Scheduler</title>
 	<style>
+        body{
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: rgb(181, 215, 245);
+            color: #333;
+            padding: 2rem;
+        }
+        h2{
+            text-align: center;
+            color: #2c3e50;
+        }
+        .table_header {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #4a5568;
+            border: 1px solid #cbd5e0;
+            cursor: default;
+        }
+        .table_header:hover {
+            background-color: #f8fafc;
+            box-shadow: none;
+            transform: none;
+        }
+        .job_table{
+            display: flex;
+            max-width: 900px;
+            margin: 0 auto;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .job_table_element {
+            display: grid;
+            /* Added column-gap to space out the columns (and the buttons!) */
+            column-gap: 15px; 
+            grid-template-columns: 50px 2fr 1fr 1fr 80px 80px;
+            align-items: center;
+            background-color: #ffffff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8; 
+            transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+            cursor: pointer;
+        }        .job_table_element:hover {
+            background-color: #f1f3f4; /* Subtle gray background */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.12); /* Lift it up slightly */
+            border-color: #d1d5da;
+        }
+        .job_table_element > div {
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 0 5px;
+            text-align: center;
+        }
+        /* left align job names */
+        .job_table_element > div:nth-child(2) {
+            text-align: left; 
+        }
+        button{
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85rem;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.8; }
+        .kill {
+            background-color: #f69b2c;
+            color: #000000;
+        }
+        .delete {
+            background-color: #ff4242;
+            color: #000000;
+        }
+        [class^="job_status_"] {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 700;
+            text-align: center;
+        }
+        .job_status_completed { background-color: #d4edda; color: #155724; }
+        
+        .job_status_failed, 
+        .job_status_system_error, 
+        .job_status_terminated, 
+        .job_status_killed { background-color: #f8d7da; color: #721c24; }
+        
+        .job_status_queued, 
+        .job_status_running { 
+            background-color: #fff3cd;
+            color: #856404; 
+        }
+        .submit_btn {
+            background-color: #03364a;
+            color: white;
+            padding: 10px 20px;
+            font-size: 1rem;
+            border-radius: 6px;
+        }
+        .job_error {
+            text-align: center;
+            color: #4a5568;
+            margin: 2rem 0;
+            font-weight: normal;
+        }
+        .userinfo {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e0;
+            border-radius: 8px;
+            padding: 15px 20px;
+            max-width: 300px;
+            margin: 0 auto 25px auto; /* Centers the card and adds bottom spacing */
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .userinfo #username {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 1.1rem;
+        }
+
+        .userinfo #email {
+            color: #4a5568;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
-    <h2>Job History</h2>
-    <div id="jobs_table" class="job_table">
-        <div  class="job_table_element">
-            <!-- fields : serial-no.|jobId(10 characters)|submission-time|
-            completion-time|status|timeout|with/without makefile|language|job-name -->
-            <!-- element-fields : name|language|status|kill|delete -->
-        </div>
+    <h2>Dashboard</h2>
+    <div class="userinfo">
+        <div id="username">Loading...</div>
+        <div id="email"></div>
     </div>
-</body>
-<script>
-	const API_URL = 'http://localhost:3000';
-    async function killJob(jobId){
-        if (!jobId){
-            return;
+    <div style="text-align: center; margin-bottom: 25px;">
+        <button id="submit_job" type="button" class="submit_btn" onclick="window.location.href='submit_job.html'">Submit new Job</button>
+    </div>
+    <div id="jobs_table" class="job_table">
+        <div class="job_table_element table_header" id="table_header">
+            <div>#</div>
+            <div>Name</div>
+            <div>Language</div>
+            <div>Status</div>
+            <div>Action</div>
+            <div>Remove</div>
+        </div>
+        <!-- fields : serial-no.|jobId(10 characters)|submission-time|
+        completion-time|status|timeout|with/without makefile|language|job-name -->
+        <!-- element-fields : name|language|status|kill|delete -->
+    </div>
+    <script>
+        const API_URL = 'http://localhost:3000';
+        async function checkAuth(){
+            const token = localStorage.getItem('token');
+            if(!token){
+                alert('You are not logged in. Redirecting to login page.');
+                window.location.href = 'login.html';
+                return;
+            }
+            try{
+                const verifyResponse = await fetch(`${API_URL}/verify`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                if (!verifyResponse.ok) {
+                    alert('Invalid access. Please log in again.');
+                    //localStorage.removeItem('token');
+                    window.location.href = 'login.html';
+                    return;
+                }
+            }catch(err){
+                console.error(err);
+                alert(`Unable to load page. Try again later`);
+                window.location.href = 'login.html';
+            }
         }
-        const token = localStorage.getItem('token');
-        try{
-            const response = await fetch(`${API_URL}/jobs/${jobId}/kill`,{
-                method: 'POST',
-                headers: {
-                    'Authorization' : `Bearer ${token}`,
-                },
-            });
-            if (response.status!=200){
+        
+        checkAuth();
+
+        async function showUserData(){
+            const token = localStorage.getItem('token');
+            const usernameEl = document.getElementById('username');
+            const emailEl = document.getElementById('email');
+            try{
+                const response = await fetch(`${API_URL}/users/me`,{
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`, 
+                    },
+                });
+                if (!response.ok){
+                    throw new Error('Failed to fetch usser data')
+                }
+                const user = await response.json();
+                usernameEl.innerText = user.username;
+                emailEl.innerText = user.email;
+            }catch(err){
+                usernameEl.innerText = 'USERNAME';
+                emailEl.innerText = 'EMAIL';
+            }
+        }
+
+        async function view_job_data(jobId){
+            // view the info of one particulare job
+            window.location.href = `job_details.html?id=${jobId}`;
+        }
+
+        async function killJob(jobId){
+            if (!jobId){
+                return;
+            }
+            const token = localStorage.getItem('token');
+            try{
+                const response = await fetch(`${API_URL}/jobs/${jobId}/kill`,{
+                    method: 'POST',
+                    headers: {
+                        'Authorization' : `Bearer ${token}`,
+                    },
+                });
+                if (response.status!=200){
+                    const data = await response.json();
+                    alert(data.error || 'Failed to kill job');
+                    return;
+                }
+            }catch(err){
                 alert('Failed to kill job');
+            }
+        }
+
+        async function deleteJob(jobId){
+            if (!jobId){
                 return;
             }
-        }catch(err){
-            alert('Failed to kill job');
-        }
-    }
-
-    async function deleteJob(jobId){
-        if (!jobId){
-            return;
-        }
-        const token = localStorage.getItem('token');
-        try{
-            const response = await fetch(`${API_URL}/jobs/${jobId}/delete`,{
-                method: 'DELETE',
-                headers: {
-                    'Authorization' : `Bearer ${token}`,
-                },
-            });
-            if (response.status!=200){
+            const token = localStorage.getItem('token');
+            try{
+                const response = await fetch(`${API_URL}/jobs/${jobId}/delete`,{
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization' : `Bearer ${token}`,
+                    },
+                });
+                if (response.status!=200){
+                    alert('Failed to delete job');
+                    return;
+                }
+                // remove from table
+                document.getElementById(jobId).remove();
+            }catch(err){
                 alert('Failed to delete job');
-                return;
             }
-            // remove from table
-            document.getElementById(jobId).remove();
-        }catch(err){
-            alert('Failed to delete job');
         }
-    }
 
-    async function startDashboardPolling() {
-        const token = localStorage.getItem('token');
-        const dashboardPollInterval = setInterval(async ()=>{
+        async function startDashboardPolling() {
+            const token = localStorage.getItem('token');
+            const dashboardPollInterval = setInterval(async ()=>{
+                try{
+                    const response = await fetch(`${API_URL}/jobs`,{
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    if (response.status === 200){
+                        const data = await response.json();
+                        const jobs = data.jobs;
+                        jobs.forEach(job=>{
+                            const row = document.getElementById(job.id);
+                            // some jobs might have been deleted, so check if row exists
+                            if (row){
+                                const statusDiv = row.children[3];
+                                if (statusDiv.innerText !== job.status){
+                                    statusDiv.classList.remove(`job_status_${statusDiv.innerText.toLowerCase()}`);
+                                    statusDiv.classList.add(`job_status_${job.status.toLowerCase()}`);
+                                    statusDiv.innerText = job.status;
+                                }
+                            }
+                        });
+                    }
+                }catch(err){
+                    console.error('Polling | Dashboard status update error');
+                    return;
+                }
+            },3000);
+        }
+        
+        async function add_jobs(jobId){
+            const token = localStorage.getItem('token');
+            const table = document.getElementById('jobs_table');
             try{
                 const response = await fetch(`${API_URL}/jobs`,{
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization' : `Bearer ${token}`,
                     },
                 });
-                if (response.status === 200){
-                    const data = await response.json();
-                    const jobs = data.rows;
-                    jobs.forEach(job=>{
-                        const row = document.getElementById(job.id);
-                        // some jobs might have been deleted, so check if row exists
-                        if (row){
-                            const statusDiv = row.children[3];
-                            if (statusDiv.innerText !== job.status){
-                                statusDiv.classList.remove(`job_status_${statusDiv.innerText.toLowerCase()}`);
-                                statusDiv.classList.add(`job_status_${job.status.toLowerCase()}`);
-                                statusDiv.innerText = job.status;
-                            }
-                        }
-                    });
+                if (!response.ok){
+                    // fill the table to be empty, telling unable to retrieve jobs
+                    table.innerHTML += `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
+                    return;
                 }
+                const data = await response.json();
+                const jobs = data.jobs;
+                if (jobs.length == 0){
+                    table.innerHTML += `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
+                    return;
+                }
+                jobs.forEach((job,index) => {
+                    const row = document.createElement('div');
+                    row.id = job.id;
+                    row.className = 'job_table_element';
+                    row.onclick = () => view_job_data(job.id);
+                    row.innerHTML = `
+                        <div class='job_no'> ${index+1} </div>
+                        <div class='job_title'> ${job.name} </div>
+                        <div class='job_language'> ${job.lang} </div>
+                        <div class='job_status_${job.status.toLowerCase()}'> ${job.status} </div>
+                        <div class='job_kill'> <button onclick="event.stopPropagation();killJob('${job.id}')" class='kill'>kill</button> </div>
+                        <div class='job_delete'> <button onclick="event.stopPropagation();deleteJob('${job.id}')" class='delete'>delete</button> </div>
+                    `;
+                    table.appendChild(row);
+                });
             }catch(err){
-                console.error('Polling | Dashboard status update error');
-                return;
+                console.error(err);
+                table.innerHTML += `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
+            }finally{
+                startDashboardPolling();
             }
-        },3000);
-    }
-    
-    async function add_jobs(jobId){
-        const token = localStorage.getItem('token');
-        const table = document.getElementById('jobs_table');
-        try{
-            const response = await fetch(`${API_URL}/jobs`,{
-                method: 'GET',
-                headers: {
-                    'Authorization' : `Bearer ${token}`,
-                },
-            });
-            if (response.status!=200){
-                // fill the table to be empty, telling unable to retrieve jobs
-                table.innerHTML = `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
-                return;
-            }
-            const data = await response.json();
-            const jobs = data.rows;
-            jobs.forEach((job,index) => {
-                const row = document.createElement('div');
-                row.id = job.id;
-                row.className = 'job_element';
-                row.innerHTML = `
-                    <div class='job_no'> ${index+1} </div>
-                    <div class='job_title'> ${job.name} </div>
-                    <div class='job_language'> ${job.lang} </div>
-                    <div class='job_status_${job.status.toLowerCase()}'> ${job.status} </div>
-                    <div class='job_kill'> <button onclick="killJob('${job.id}')" class='kill'>kill</button> </div>
-                    <div class='job_delete'> <button onclick="deleteJob('${job.id}')" class='delete'>delete</button> </div>
-                `;
-                table.appendChild(row);
-            });
-            startDashboardPolling();
-        }catch(err){
-            console.error(err);
-            table.innerHTML = `<h4 class='job_error'>Unable to retrieve jobs. Try again later</h4>`;
-        }
-    }
-    
+        }  
 
-</script>
+        showUserData();
+        add_jobs();
+
+    </script>
+</body>

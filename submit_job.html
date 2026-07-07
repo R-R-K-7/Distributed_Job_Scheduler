@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Distributed Job Scheduler</title>
+	<style>
+		body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: rgb(181, 215, 245);
+            color: #333;
+            padding: 2rem;
+            margin: 0;
+        }
+        
+        .card {
+            background-color: white;
+            padding: 2rem 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.05);
+            max-width: 650px;
+            margin: auto;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #e1e4e8;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* Form Layout */
+        .form_group {
+            margin-bottom: 15px;
+        }
+        
+        .form_row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #4a5568;
+        }
+
+        /* Unified Input Styling */
+        input[type="text"], 
+        input[type="number"], 
+        select, 
+        textarea, 
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.95rem;
+            background-color: #f8fafc;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #3182ce;
+            background-color: #fff;
+        }
+
+        input[type="file"] {
+            padding: 7px;
+            background-color: #fff;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        /* Button Styling */
+		button {
+            background-color: #03364a;
+            color: rgb(255, 255, 255);
+            border: none;
+            padding: 12px 25px; /* Slightly wider horizontal padding looks nice */
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            
+            /* Add these three lines to shrink and center them! */
+            width: auto;
+            min-width: 180px; /* Gives them a nice consistent minimum size */
+            margin: 10px auto;
+            display: block; /* Required for margin: auto to work */
+            
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        button:hover:not(:disabled) {
+            background-color: #044b67;
+        }
+
+        button:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            color: #666666;
+            cursor: not-allowed;
+        }
+
+        /* Terminal Styling */
+        .terminal-container {
+            margin-top: 30px;
+            background-color: #151515;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .terminal-header {
+            background-color: #2d2d2d;
+            padding: 8px 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .terminal-title {
+            color: #888;
+            font-size: 0.8rem;
+            font-family: monospace;
+        }
+
+        .terminal {
+            color: #00f500;
+            padding: 15px;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            min-height: 120px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .error {
+            color: #ff4242;
+        }
+    </style>
+</head>
+<body>
+<script>
+	const API_URL = 'http://localhost:3000';
+	async function checkAuth(){
+		const token = localStorage.getItem('token');
+		if(!token){
+			alert('You are not logged in. Redirecting to login page.');
+			window.location.href = 'login.html';
+			return;
+		}
+		try{
+			const verifyResponse = await fetch(`${API_URL}/verify`, {
+				method: 'GET',
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+			if (!verifyResponse.ok) {
+				alert('Invalid access. Please log in again.');
+				//localStorage.removeItem('token');
+				window.location.href = 'login.html';
+				return;
+			}
+		}catch(err){
+			console.error(err);
+			alert(`Unable to load page. Try again later`);
+			window.location.href = 'login.html';
+		}
+	}
+	checkAuth();
+</script>
+<div class="card">
+	<button type="button" onclick="window.location.href='homepage.html'">Back to Dashboard</button>
+	<h2>Submit New Job</h2>
+	<div class="form_group">
+		<label for="jobName">Job Name (Max length : 20)</label>
+		<input type="text" id="jobName" maxlength="20">
+	</div>
+	<div class="form_group">
+		<label for="fileZip">Upload source code (.zip)</label>
+		<input type="file" id="fileZip" accept=".zip"/>
+	</div>
+	<div class="form_row">
+		<div class="form_group">
+			<label for="lang">Language</label>
+			<select id="lang">
+				<option value="python">Python</option>
+				<option value="c">C</option>
+				<option value="c++">C++</option>
+			</select>
+		</div>
+		<div class="form_group">
+			<label for="mode">Build Configuration</label>
+			<select id="mode">
+				<option value="1">With Makefile</option>
+				<option value="0">Without Makefile</option>
+			</select>
+		</div>
+	</div>
+	<div class="form_row">
+		<div class="form_group">
+			<label for="timeout">Timeout Value</label>
+            <input type="number" id="timeout" value="5" min="1" max="7200"/>
+        </div>
+        <div class="form_group">
+			<label for="timeoutUnit">Timeout Unit</label>
+            <select id="timeoutUnit">
+				<option value="seconds">Seconds</option>
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+            </select>
+        </div>
+    </div>
+	<div class="form_group">
+		<label for="jobdesc">Job Description</label>
+		<textarea id="jobdesc" placeholder="Brief description of job"></textarea>
+	</div>
+	<button id="submitBtn" onclick="submitJob()">Run</button>
+</div>
+<script>
+	async function submitJob(){
+		const fileInput = document.getElementById('fileZip');
+		const lang = document.getElementById('lang');
+		const mode = document.getElementById('mode');
+		const btn = document.getElementById('submitBtn');
+		const jobname = document.getElementById('jobName');
+		const jobdesc = document.getElementById('jobdesc');
+		const token = localStorage.getItem('token');
+		
+		if(fileInput.files.length === 0){
+			alert('Please select a zip file to submit.');
+			return;
+		}
+		
+		btn.disabled = true;
+
+		// package file for multer
+		const formData = new FormData();
+		formData.append('fileZip', fileInput.files[0]);
+		formData.append('lang', lang.value);
+		formData.append('mode', mode.value);
+		formData.append('name',jobname.value);
+		formData.append('description',jobdesc.value);
+		const timeoutValue = document.getElementById('timeout').value;
+		const timeoutUnit = document.getElementById('timeoutUnit').value;
+		const timeoutInSeconds = calculateTimeout(timeoutValue, timeoutUnit);
+		if (timeoutInSeconds > 2 * 60 * 60){ // limit to 2 hours
+			alert('Please enter a valid timeout value. Maximum is 2 hours.');
+			btn.disabled = false;
+			return;
+		}
+		formData.append('timeout', timeoutInSeconds * 1000); // convert to milliseconds
+		try{
+			// send to api
+			const response = await fetch(`${API_URL}/submit`, {
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${token}`,
+				},
+				body: formData
+			});
+			const data = await response.json();
+			if (response.status == 202){
+				if (data.jobId) {
+                    window.location.href = `job_details.html?id=${data.jobId}`;
+                } else {
+                    // allback just in case
+                    window.location.href = 'homepage.html';
+                }
+			}else if (response.status == 401){
+				// the jwt token has expired
+				alert('Your session has expired. Login again');
+				localStorage.removeItem('token');
+				window.location.href = 'login.html';
+				return;
+			}else{
+				throw new Error(data.error || 'Upload Failed');
+			}
+		}catch(err){
+			console.log(err);
+			btn.disabled = false;
+			alert('Job submission failed');
+		}
+	}
+	function calculateTimeout(timeoutValue, timeoutUnit){
+		const unitMultipliers = {
+			seconds: 1,
+			minutes: 60,
+			hours: 60 * 60,
+		};
+		return timeoutValue * (unitMultipliers[timeoutUnit] || 1000);
+	}
+	function handleTime(){
+		const timeoutInput = document.getElementById('timeout');
+		const timeoutUnitSelect = document.getElementById('timeoutUnit');
+		const totalSeconds = calculateTimeout(timeoutInput.value, timeoutUnitSelect.value);
+		const submitBtn = document.getElementById('submitBtn');
+		if (totalSeconds > 2 * 60 * 60){ // limit to 2 hours
+			timeoutInput.setCustomValidity('Timeout exceeds 2 hours. Please enter a valid value.');
+			timeoutInput.style.border = '2px solid red';
+			timeoutUnitSelect.style.border = '2px solid red';
+			submitBtn.disabled = true;
+		}else{
+			timeoutInput.setCustomValidity('');
+			timeoutInput.style.borderColor = '';
+			timeoutUnitSelect.style.border = '';
+			submitBtn.disabled = false;
+		}
+	}
+	document.getElementById('timeout').addEventListener('input', handleTime);
+	document.getElementById('timeoutUnit').addEventListener('change', handleTime);
+	
+</script>
+</body>
+</html>
