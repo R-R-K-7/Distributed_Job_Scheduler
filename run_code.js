@@ -61,10 +61,14 @@ async function findMain(dirPath, lang) {
 
 // spawns a process and returns the process object
 async function execCode(dirname, lang, mode, timeout, jobId){
-	const docker_cmd = `docker run --rm --name '${jobId}' `+
+	const memory = "128m"; // 128 MB
+	const max_pids = 100;
+	const max_file_size = 25 * 1024 * 1024; // 25 MB
+	const cpus = 1.0;
+	const docker_cmd = `docker run --rm --network none --name '${jobId}' `+
 					   `-v ${dirname}:/usr/src/app -w /usr/src/app `+
-					   `--memory="128m" --memory-swap="128m" --cpus="1.0" `+
-					   `--ulimit fsize=${25 * 1024 * 1024} --ulimit core=0 --pids-limit 20 `;
+					   `--memory="${memory}" --memory-swap="${memory}" --cpus="${cpus}" `+
+					   `--ulimit fsize=${max_file_size} --ulimit core=0 --pids-limit ${max_pids} `;
 	let image = "";
 	let runCmd = "";
 	try{

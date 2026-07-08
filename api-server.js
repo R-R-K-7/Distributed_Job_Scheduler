@@ -33,14 +33,18 @@ async function verifyToken(token){
 
 async function verifyHeader(req,res,next){
 	// verify jwt
-	const jobId = req.params.jobId;
-	const token = req.headers.authorization?.split(' ')[1];
-	const payload = await verifyToken(token);
-	if (!payload){
-		return res.status(401).json({error : 'Invalid access token'});
+	try{
+		const jobId = req.params.jobId;
+		const token = req.headers.authorization?.split(' ')[1];
+		const payload = await verifyToken(token);
+		if (!payload){
+			return res.status(401).json({error : 'Invalid access token'});
+		}
+		req.user = payload;
+		next();
+	}catch(err){
+		next(err);
 	}
-	req.user = payload;
-	next();
 }
 
 async function cancelJob(req,res,isDelete=false){
